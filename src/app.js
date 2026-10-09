@@ -181,6 +181,7 @@ function buildFans() {
     const b = document.createElement("button"); b.type = "button"; b.className = "fan"; b.id = "f-" + f.id;
     b.innerHTML = `<span class="n"></span><span class="rpm"><span class="r">0</span><small>RPM</small></span><span class="meta"></span><span class="duty"></span>`;
     b.onclick = () => { state.fan = f.id; state.sel = 0; renderAll(); };
+    b.oncontextmenu = (e) => { e.preventDefault(); openFanMenu(f, e); };
     li.appendChild(b); ul.appendChild(li);
   }
   buildFanPicker();
@@ -202,16 +203,45 @@ function buildFanPicker() {
     l.append(c, document.createTextNode(fanName(f)), rpm); list.appendChild(l);
   }
 }
+/* ---------- fan context menu: stop a fan to find out which one it is ---------- */
+// Not persisted on purpose: a restart (or Vento exiting) always brings every fan back.
+const stopped = new Set();
+const canStop = (f) => real && f.ctrl && !isAmdOd8(f);
+function openFanMenu(f, e) {
+  const m = $("fan-menu"), item = $("fan-menu-toggle");
+  const off = stopped.has(f.id);
+  item.textContent = off ? "Abilita" : "Disabilita";
+  item.disabled = !canStop(f) && !off;
+  $("fan-menu-note").textContent = canStop(f) ? (off ? "" : "Ferma la ventola per riconoscerla") : "Questa ventola non si può fermare da Vento";
+  item.onclick = () => { closeFanMenu(); setStopped(f, !off); };
+  // Mouse: at the pointer. Keyboard (context-menu key): under the fan's row.
+  const r = e.currentTarget.getBoundingClientRect();
+  const x = e.clientX || r.left + 16, y = e.clientY || r.bottom;
+  m.hidden = false;
+  m.style.left = Math.min(x, innerWidth - m.offsetWidth - 8) + "px";
+  m.style.top = Math.min(y, innerHeight - m.offsetHeight - 8) + "px";
+  item.focus();
+}
+function closeFanMenu() { $("fan-menu").hidden = true; }
+addEventListener("pointerdown", (e) => { if (!$("fan-menu").contains(e.target)) closeFanMenu(); });
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeFanMenu(); });
+addEventListener("blur", closeFanMenu);
+function setStopped(f, on) {
+  if (on) stopped.add(f.id); else stopped.delete(f.id);
+  safety = "";
+  controlTick(); updateFans();
+}
+
 function updateFans() {
   for (const f of FANS) { const p = $("pk-" + f.id); if (p) p.textContent = `${Math.round(sim.rpm[f.id] ?? 0)} RPM`; }
   for (const f of shownFans()) {
     const b = $("f-" + f.id); if (!b) continue;
     b.setAttribute("aria-current", String(f.id === state.fan));
-    b.dataset.state = isDirty(f.id) ? "dirty" : "";
+    b.dataset.state = stopped.has(f.id) ? "off" : isDirty(f.id) ? "dirty" : "";
     b.querySelector(".n").textContent = fanName(f);
     b.querySelector(".r").textContent = Math.round(sim.rpm[f.id] / 10) * 10;
     b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor)?.name ?? "Nessun sensore";
-    b.querySelector(".duty").textContent = Math.round(real ? (sim.duty[f.id] ?? (sim.rpm[f.id] / f.maxRpm) * 100) : dutyAt(applied()[f.id].points, sim.t[applied()[f.id].sensor])) + "%";
+    b.querySelector(".duty").textContent = stopped.has(f.id) ? "Spenta" : Math.round(real ? (sim.duty[f.id] ?? (sim.rpm[f.id] / f.maxRpm) * 100) : dutyAt(applied()[f.id].points, sim.t[applied()[f.id].sensor])) + "%";
   }
 }
 
@@ -458,10 +488,23 @@ function amdCurve(points) {
   return out.join(" ");
 }
 const noResponse = new Set();
+let safety = ""; // last automatic re-enable, shown in the footer
 const send = (line) => invoke?.("fan_cmd", { line }).catch(() => {});
 function controlTick() {
   if (!real || !invoke) return;
+  // Safety: any sensor at its critical temperature brings every stopped fan back at once.
+  const hot = SENSORS.find((q) => sim.t[q.id] >= q.crit);
+  if (hot && stopped.size) { stopped.clear(); safety = `Ventole riaccese: ${hot.name} a ${sim.t[hot.id].toFixed(0)} °C`; }
   for (const f of FANS) {
+    if (stopped.has(f.id) && canStop(f)) {
+      const s = SENSORS.find((q) => q.id === applied()[f.id].sensor), t = sim.t[s?.id];
+      if (s && t >= s.warn) { stopped.delete(f.id); safety = `${fanName(f)} riaccesa: ${s.name} a ${t.toFixed(0)} °C`; }
+      else {
+        if (sent[f.id]?.duty !== 0) { send(`set ${f.ctrl} 0`); sent[f.id] = { duty: 0, at: Date.now() }; }
+        noResponse.delete(f.id);
+        continue;
+      }
+    }
     const drive = state.control && isVisible(f);
     if (isAmdOd8(f)) {
       const key = drive ? amdCurve(applied()[f.id].points) : null;
@@ -538,8 +581,8 @@ setInterval(() => {
   nowEl.innerHTML = t > 0 ? `Ora: <b>${t.toFixed(1)} °C</b> → <b>${dutyAt(ap.points, t).toFixed(0)}%</b> · ${Math.round(sim.rpm[state.fan])} RPM` : "Sensore non leggibile (servono diritti di amministratore)";
   controlTick(); setSource();
   const bad = FANS.filter((f) => noResponse.has(f.id));
-  $("warn-fan").hidden = !bad.length;
-  $("warn-fan").textContent = bad.length ? `${bad.map(fanName).join(", ")} non segue Vento: chiudi altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software) o prova "Riavvia come amministratore".` : "";
+  $("warn-fan").hidden = !bad.length && !safety;
+  $("warn-fan").textContent = safety ? safety : bad.length ? `${bad.map(fanName).join(", ")} non segue Vento: chiudi altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software) o prova "Riavvia come amministratore".` : "";
   pushTray();
   $("admin").hidden = !(real && SENSORS.slice(0, 8).some((s) => !(sim.t[s.id] > 0)));
 }, TICK_MS);
