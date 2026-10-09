@@ -59,6 +59,15 @@ fn set_main_tray(app: AppHandle, visible: bool) {
     if let Some(t) = app.tray_by_id("main") {
         let _ = t.set_visible(visible);
     }
+    ensure_reachable(&app);
+}
+
+/// Vento starts hidden in the tray. With no tray icon left there would be nothing to click,
+/// so in that case the window is shown instead.
+fn ensure_reachable(app: &AppHandle) {
+    if !MAIN_TRAY.load(Ordering::SeqCst) && TEMP_TRAYS.load(Ordering::SeqCst) == 0 {
+        show(app);
+    }
 }
 
 /// One extra tray icon per fan: the UI draws the temperature (RGBA, size x size) and we show it.
@@ -82,6 +91,7 @@ fn remove_temp_tray(app: AppHandle, id: String) {
     if app.remove_tray_by_id(&format!("temp-{id}")).is_some() {
         TEMP_TRAYS.fetch_sub(1, Ordering::SeqCst);
     }
+    ensure_reachable(&app);
 }
 
 #[tauri::command]
@@ -226,7 +236,54 @@ fn tray(app: &AppHandle, b: TrayIconBuilder<Wry>) -> tauri::Result<TrayIcon> {
         .build(app)
 }
 
+type Handle = *mut core::ffi::c_void;
+#[link(name = "kernel32")]
+extern "system" {
+    fn CreateMutexW(attrs: *const core::ffi::c_void, owner: i32, name: *const u16) -> Handle;
+    fn CreateEventW(attrs: *const core::ffi::c_void, manual: i32, initial: i32, name: *const u16) -> Handle;
+    fn OpenEventW(access: u32, inherit: i32, name: *const u16) -> Handle;
+    fn SetEvent(h: Handle) -> i32;
+    fn WaitForSingleObject(h: Handle, ms: u32) -> u32;
+    fn GetLastError() -> u32;
+}
+const ERROR_ACCESS_DENIED: u32 = 5;
+const ERROR_ALREADY_EXISTS: u32 = 183;
+const EVENT_MODIFY_STATE: u32 = 0x0002;
+
+fn wide(s: &str) -> Vec<u16> { s.encode_utf16().chain(Some(0)).collect() }
+
+/// One Vento at a time: two would fight over the same fans. A second launch asks the running one
+/// to show its window (a named event) and exits. Retries for 3 s, because "restart as
+/// administrator" briefly overlaps the old and the new instance.
+fn single_instance() -> bool {
+    let name = wide(r"Local\Vento.SingleInstance");
+    for _ in 0..30 {
+        let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        let err = unsafe { GetLastError() };
+        // The handle stays open for the life of the process. An elevated owner shows up as access denied.
+        if !h.is_null() && err != ERROR_ALREADY_EXISTS { return true; }
+        if h.is_null() && err != ERROR_ACCESS_DENIED { return true; } // unexpected: never lock the user out
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let ev = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide(r"Local\Vento.Show").as_ptr()) };
+    if !ev.is_null() { unsafe { SetEvent(ev); } }
+    false
+}
+
+/// The running instance's side: show the window whenever another launch asks for it.
+fn listen_for_show(app: AppHandle) {
+    let ev = unsafe { CreateEventW(std::ptr::null(), 0, 0, wide(r"Local\Vento.Show").as_ptr()) } as usize;
+    if ev == 0 { return; }
+    std::thread::spawn(move || loop {
+        if unsafe { WaitForSingleObject(ev as Handle, u32::MAX) } == 0 {
+            let a = app.clone();
+            let _ = app.run_on_main_thread(move || show(&a));
+        }
+    });
+}
+
 fn main() {
+    if !single_instance() { return; }
     // Portable: keep WebView2 profile (localStorage = settings) next to the exe.
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("vento-data"))) {
         std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir);
@@ -241,6 +298,7 @@ fn main() {
             app.manage(Sidecar(Mutex::new(None)));
             tray(app.handle(), TrayIconBuilder::with_id("main").icon(tauri::image::Image::new_owned(include_bytes!("../icons/tray.rgba").to_vec(), 64, 64)) /* 3 wind lines, transparent; source: icons/tray.png */.tooltip("Vento"))?;
             spawn_sensors(app.handle().clone());
+            listen_for_show(app.handle().clone());
             Ok(())
         })
         .on_window_event(|w, e| {

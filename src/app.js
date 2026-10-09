@@ -287,7 +287,9 @@ function trayTick(force = false) {
     const t = fanTemp(f), text = t > 0 ? t.toFixed(0) : "--", key = text + "|" + fanColor(f);
     if (!force && trayShown[id] === key) continue;
     trayShown[id] = key;
-    invoke("set_temp_tray", { id, rgba: drawTemp(text, fanColor(f)), size: 32, tooltip: `${fanName(f)}: ${text} °C` }).catch(() => {});
+    invoke("set_temp_tray", { id, rgba: drawTemp(text, fanColor(f)), size: 32, tooltip: `${fanName(f)}: ${text} °C` })
+      .then(() => { if (hideAppIconWhenReady) { hideAppIconWhenReady = false; invoke("set_main_tray", { visible: false }); } })
+      .catch(() => {});
   }
 }
 
@@ -727,7 +729,12 @@ window.__TAURI__?.event?.listen("sensors", (e) => {
 applyI18n();
 invoke?.("set_tray_labels", { open: tx("tray_open"), quit: tx("tray_quit") });
 initStores(); ensureProfiles(); setSource();
-invoke?.("set_main_tray", { visible: state.trayIcon });
+// Vento starts hidden in the tray. Without the app icon, a temperature icon must exist first; its
+// fans are known only once the sensors answer, so wait for the first one (Rust shows the window
+// if no icon is left at all).
+let hideAppIconWhenReady = !state.trayIcon && state.trayFans.length > 0;
+if (!hideAppIconWhenReady) invoke?.("set_main_tray", { visible: state.trayIcon });
+else setTimeout(() => { if (hideAppIconWhenReady) { hideAppIconWhenReady = false; invoke?.("set_main_tray", { visible: false }); } }, 8000);
 elevateIfNeeded().then(warnConflicts);
 buildFans(); buildEditorControls(); renderAll();
 const nowEl = $("now");
