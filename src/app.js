@@ -65,11 +65,12 @@ const state = {
   draft: null, // working copy of the active profile
   autostart: saved?.autostart ?? false,
   control: saved?.control ?? false, // opt-in: drive the real fans
+  seenFans: new Set(saved?.seenFans ?? []), // headers that have ever spun; empty headers stay hidden
 };
 const applied = () => state.profiles[state.active];
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
-const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control });
+const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control, seenFans: [...state.seenFans] });
 
 /* ---------- curves ---------- */
 function dutyAt(points, t) {
@@ -435,7 +436,11 @@ const guessRpmMax = (rpm) => Math.max(1000, Math.ceil((rpm * 1.4) / 100) * 100);
 const shortHw = (hw) => hw.replace(/^(AMD|Intel\(R\)|Intel|NVIDIA)\s+/i, "").replace(/^(Radeon RX|Radeon|GeForce RTX|GeForce GTX|Ryzen \d|Core i\d|Core Ultra \d)\s*/i, "");
 const limits = (id, hw) => /nvme|hdd|ssd|storage/i.test(id + hw) ? { warn: 65, crit: 75, max: 90 } : /vrm|chipset|motherboard/i.test(id + hw) ? { warn: 85, crit: 100, max: 120 } : { warn: 80, crit: 90, max: 100 };
 function onHardware(list) {
-  const temps = list.filter((x) => x.type === "temp"), fans = list.filter((x) => x.type === "fan" && x.value >= 0);
+  const temps = list.filter((x) => x.type === "temp");
+  let fans = list.filter((x) => x.type === "fan" && x.value >= 0);
+  // A Super I/O chip reports every header on the board; show only the ones a fan is plugged into.
+  for (const x of fans) if (x.value > 0 && !state.seenFans.has(x.id)) { state.seenFans.add(x.id); persist(); }
+  fans = fans.filter((x) => state.seenFans.has(x.id) || x.id.includes("/gpu"));
   const known = new Set(SENSORS.map((s) => s.id) );
   if (!real || temps.some((x) => !known.has(x.id)) || fans.some((x) => !FANS.some((f) => f.id === x.id))) {
     SENSORS = temps.map((x) => ({ id: x.id, name: `${shortHw(x.hw)} ${x.name}`, ...limits(x.id, x.hw) }));
