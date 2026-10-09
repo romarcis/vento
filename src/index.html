@@ -9,7 +9,6 @@
 <body>
 <header class="bar">
   <h1 class="mark">vento</h1>
-  <div class="profiles" role="radiogroup" aria-label="Profilo" id="profiles"></div>
   <span class="sim" id="sim" title="Nessun backend hardware collegato: i valori sono generati da un simulatore">Dati simulati</span>
   <div class="actions">
     <span class="dirty" id="dirty" role="status"></span>
@@ -23,23 +22,36 @@
 <main class="work">
   <nav class="rail" aria-label="Ventole">
     <ul id="fans"></ul>
+    <details class="fan-pick" id="fan-pick" hidden>
+      <summary>Ventole visibili <span id="fan-pick-count"></span></summary>
+      <div class="fan-pick-list" id="fan-pick-list"></div>
+    </details>
   </nav>
 
   <section class="editor" aria-labelledby="fan-title">
     <div class="editor-head">
-      <h2 id="fan-title"></h2>
+      <div class="title">
+        <h2 id="fan-title"></h2>
+        <input id="rename-input" type="text" maxlength="40" aria-label="Nome ventola" hidden>
+        <button type="button" id="rename" class="quiet">Rinomina</button>
+      </div>
       <label class="field">Sensore
         <select id="sensor-select"></select>
       </label>
-      <label class="field">Profilo di ventola
-        <select id="preset-select">
-          <option value="">Preset…</option>
-          <option value="silent">Silenzioso</option>
-          <option value="balanced">Bilanciato</option>
-          <option value="perf">Performance</option>
-          <option value="flat">Fisso 50%</option>
-        </select>
+      <label class="field">Preset
+        <select id="preset-select"></select>
       </label>
+      <div class="preset-actions" id="preset-actions">
+        <button type="button" id="preset-save">Salva come preset</button>
+        <button type="button" id="preset-del" disabled>Elimina</button>
+      </div>
+      <form class="preset-form" id="preset-form" hidden>
+        <label class="field">Nome preset
+          <input id="preset-name" type="text" maxlength="30" required>
+        </label>
+        <button type="submit" class="primary">Salva</button>
+        <button type="button" id="preset-cancel">Annulla</button>
+      </form>
     </div>
 
     <div class="chart-wrap">

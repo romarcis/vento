@@ -31,6 +31,7 @@ const PRESETS = {
   flat: [[30, 50], [90, 50]],
 };
 const PROFILE_NAMES = { silent: "Silenzioso", balanced: "Bilanciato", perf: "Performance" };
+const BUILTIN = { silent: "Silenzioso", balanced: "Bilanciato", perf: "Performance", flat: "Fisso 50%" };
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -65,12 +66,19 @@ const state = {
   draft: null, // working copy of the active profile
   autostart: saved?.autostart ?? false,
   control: saved?.control ?? false, // opt-in: drive the real fans
-  seenFans: new Set(saved?.seenFans ?? []), // headers that have ever spun; empty headers stay hidden
+  fanNames: saved?.fanNames ?? {},     // fan id -> user's name
+  fanPresets: saved?.fanPresets ?? {}, // fan id -> [{ name, points }]
+  seenFans: new Set(saved?.seenFans ?? []), // headers that have ever spun
+  fanVisible: saved?.fanVisible ?? {},       // fan id -> shown in the rail (user's choice)
 };
 const applied = () => state.profiles[state.active];
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
-const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control, seenFans: [...state.seenFans] });
+const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible });
+// Until the user picks, show fans that have spun at least once (a Super I/O chip lists every header).
+const isVisible = (f) => !real || (state.fanVisible[f.id] ?? (state.seenFans.has(f.id) || f.id.includes("/gpu")));
+const shownFans = () => FANS.filter(isVisible);
+const fanName = (f) => state.fanNames[f.id] || f.name;
 
 /* ---------- curves ---------- */
 function dutyAt(points, t) {
@@ -128,21 +136,7 @@ function simStep() {
   }
 }
 
-/* ---------- header / profiles ---------- */
-function renderProfiles() {
-  const box = $("profiles"); box.textContent = "";
-  for (const k in PROFILE_NAMES) {
-    const b = document.createElement("button");
-    b.type = "button"; b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(k === state.active));
-    b.textContent = PROFILE_NAMES[k];
-    b.onclick = () => {
-      if (anyDirty() && !confirmDiscard()) return;
-      state.active = k; state.draft = clone(applied()); state.sel = 0; persist(); renderAll();
-    };
-    box.appendChild(b);
-  }
-}
+/* ---------- header ---------- */
 function confirmDiscard() { return window.confirm("Ci sono modifiche non applicate. Scartarle?"); }
 function renderActions() {
   const d = anyDirty();
@@ -182,20 +176,39 @@ function updateSensors() {
 /* ---------- fan rail ---------- */
 function buildFans() {
   const ul = $("fans"); ul.textContent = "";
-  for (const f of FANS) {
+  for (const f of shownFans()) {
     const li = document.createElement("li");
     const b = document.createElement("button"); b.type = "button"; b.className = "fan"; b.id = "f-" + f.id;
     b.innerHTML = `<span class="n"></span><span class="rpm"><span class="r">0</span><small>RPM</small></span><span class="meta"></span><span class="duty"></span>`;
     b.onclick = () => { state.fan = f.id; state.sel = 0; renderAll(); };
     li.appendChild(b); ul.appendChild(li);
   }
+  buildFanPicker();
+}
+// Checklist of every detected fan; unchecked ones leave the rail and are not driven.
+function buildFanPicker() {
+  const box = $("fan-pick"); box.hidden = !real;
+  $("fan-pick-count").textContent = `${shownFans().length}/${FANS.length}`;
+  const list = $("fan-pick-list"); list.textContent = "";
+  for (const f of FANS) {
+    const l = document.createElement("label"); l.className = "check";
+    const c = document.createElement("input"); c.type = "checkbox"; c.checked = isVisible(f);
+    c.onchange = () => {
+      state.fanVisible[f.id] = c.checked; persist();
+      if (!shownFans().some((x) => x.id === state.fan)) state.fan = shownFans()[0]?.id;
+      buildFans(); renderAll();
+    };
+    const rpm = document.createElement("span"); rpm.className = "pick-rpm"; rpm.id = "pk-" + f.id;
+    l.append(c, document.createTextNode(fanName(f)), rpm); list.appendChild(l);
+  }
 }
 function updateFans() {
-  for (const f of FANS) {
-    const b = $("f-" + f.id), cfg = state.draft[f.id];
+  for (const f of FANS) { const p = $("pk-" + f.id); if (p) p.textContent = `${Math.round(sim.rpm[f.id] ?? 0)} RPM`; }
+  for (const f of shownFans()) {
+    const b = $("f-" + f.id); if (!b) continue;
     b.setAttribute("aria-current", String(f.id === state.fan));
     b.dataset.state = isDirty(f.id) ? "dirty" : "";
-    b.querySelector(".n").textContent = f.name;
+    b.querySelector(".n").textContent = fanName(f);
     b.querySelector(".r").textContent = Math.round(sim.rpm[f.id] / 10) * 10;
     b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor)?.name ?? "Nessun sensore";
     b.querySelector(".duty").textContent = Math.round(real ? (sim.duty[f.id] ?? (sim.rpm[f.id] / f.maxRpm) * 100) : dutyAt(applied()[f.id].points, sim.t[applied()[f.id].sensor])) + "%";
@@ -315,10 +328,47 @@ function afterEdit() { syncPointFields(); updateChart(); updateFans(); renderAct
 function buildEditorControls() {
   $("sensor-select").innerHTML = SENSORS.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
   $("sensor-select").onchange = (e) => { state.draft[state.fan].sensor = e.target.value; afterEdit(); };
+  // Presets: built-in curves plus the ones the user saved for this fan ("b:<key>" / "c:<index>").
   $("preset-select").onchange = (e) => {
-    if (!e.target.value) return;
-    state.draft[state.fan].points = clone(PRESETS[e.target.value]); state.sel = 0; e.target.value = ""; afterEdit(); renderEditor();
+    const [kind, key] = e.target.value.split(":");
+    const pts = kind === "b" ? PRESETS[key] : kind === "c" ? customPresets()[+key]?.points : null;
+    $("preset-del").disabled = kind !== "c";
+    if (!pts) return;
+    state.draft[state.fan].points = clone(pts); state.sel = 0; afterEdit(); renderEditor(e.target.value);
   };
+  const showForm = (on) => { $("preset-form").hidden = !on; $("preset-actions").hidden = on; if (on) { $("preset-name").value = ""; $("preset-name").focus(); } };
+  $("preset-save").onclick = () => showForm(true);
+  $("preset-cancel").onclick = () => showForm(false);
+  $("preset-form").onsubmit = (e) => {
+    e.preventDefault();
+    const name = $("preset-name").value.trim(); if (!name) return;
+    const list = (state.fanPresets[state.fan] ??= []);
+    const i = list.findIndex((p) => p.name.toLowerCase() === name.toLowerCase()); // same name overwrites
+    const entry = { name, points: clone(state.draft[state.fan].points) };
+    if (i >= 0) list[i] = entry; else list.push(entry);
+    persist(); showForm(false); renderEditor(`c:${i >= 0 ? i : list.length - 1}`);
+  };
+  $("preset-del").onclick = () => {
+    const [kind, key] = $("preset-select").value.split(":"); if (kind !== "c") return;
+    customPresets().splice(+key, 1); persist(); renderEditor();
+  };
+  // Rename the selected fan in place: Enter saves, Esc cancels, empty restores the hardware name.
+  const renaming = (on) => {
+    $("fan-title").hidden = on; $("rename").hidden = on; $("rename-input").hidden = !on;
+    if (on) { const f = FANS.find((x) => x.id === state.fan); $("rename-input").value = fanName(f); $("rename-input").select(); $("rename-input").focus(); }
+  };
+  $("rename").onclick = () => renaming(true);
+  $("rename-input").onkeydown = (e) => {
+    if (e.key === "Escape") { renaming(false); $("rename").focus(); }
+    if (e.key === "Enter") commitName();
+  };
+  const commitName = () => {
+    if ($("rename-input").hidden) return;
+    const v = $("rename-input").value.trim();
+    if (v) state.fanNames[state.fan] = v; else delete state.fanNames[state.fan];
+    persist(); renaming(false); updateFans(); renderEditor();
+  };
+  $("rename-input").onblur = commitName;
   $("pt-select").onchange = (e) => { state.sel = +e.target.value; syncPointFields(); markSel(); };
   const num = () => movePoint(state.sel, +$("pt-temp").value, +$("pt-duty").value);
   $("pt-temp").onchange = num; $("pt-duty").onchange = num;
@@ -341,11 +391,22 @@ function syncPointFields() {
   $("pt-temp").value = p[0]; $("pt-duty").value = p[1];
   $("pt-del").disabled = pts.length <= 2;
 }
-function renderEditor() {
+const customPresets = () => state.fanPresets[state.fan] ?? [];
+function renderPresets(selected = "") {
+  const opt = (v, t) => `<option value="${v}">${t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)}</option>`;
+  const custom = customPresets();
+  $("preset-select").innerHTML = opt("", "Scegli…")
+    + `<optgroup label="Predefiniti">${Object.entries(BUILTIN).map(([k, t]) => opt(`b:${k}`, t)).join("")}</optgroup>`
+    + (custom.length ? `<optgroup label="Personalizzati">${custom.map((p, i) => opt(`c:${i}`, p.name)).join("")}</optgroup>` : "");
+  $("preset-select").value = selected;
+  $("preset-del").disabled = !selected.startsWith("c:");
+}
+function renderEditor(preset) {
   const f = FANS.find((x) => x.id === state.fan);
   if (!f) { $("fan-title").textContent = "Nessuna ventola rilevata"; chart.textContent = ""; return; }
   $("sensor-select").innerHTML = SENSORS.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
-  $("fan-title").textContent = f.name;
+  $("fan-title").textContent = fanName(f);
+  renderPresets(preset);
   $("sensor-select").value = state.draft[f.id].sensor;
   // An AMD Overdrive8 GPU runs the curve in its own driver, on its own temperature.
   $("sensor-select").disabled = isAmdOd8(f);
@@ -356,7 +417,7 @@ function renderEditor() {
   syncPointFields();
   drawChart();
 }
-function renderAll() { if (!FANS.some((f) => f.id === state.fan)) state.fan = FANS[0]?.id; renderProfiles(); renderActions(); updateSensors(); updateFans(); renderEditor(); }
+function renderAll() { if (!shownFans().some((f) => f.id === state.fan)) state.fan = shownFans()[0]?.id; renderActions(); updateSensors(); updateFans(); renderEditor(); }
 
 /* ---------- tray / autostart (Tauri, optional) ---------- */
 const tauri = window.__TAURI__;
@@ -364,8 +425,8 @@ const invoke = tauri?.core?.invoke;
 function pushTray() {
   if (!invoke) return;
   const hot = SENSORS.filter((s) => sim.t[s.id] > 0).slice(0, 2).map((s) => `${s.name.split(" ")[0]} ${sim.t[s.id].toFixed(0)}°C`).join(" · ");
-  const rpm = FANS.slice(0, 3).map((f) => `${f.name.split(" ")[0]} ${Math.round(sim.rpm[f.id])}`).join(" · ");
-  invoke("set_tray_tooltip", { text: `Vento · ${PROFILE_NAMES[state.active]}\n${hot}\n${rpm} RPM` }).catch(() => {});
+  const rpm = FANS.slice(0, 3).map((f) => `${fanName(f)} ${Math.round(sim.rpm[f.id])}`).join(" · ");
+  invoke("set_tray_tooltip", { text: `Vento\n${hot}\n${rpm} RPM`.slice(0, 127) }).catch(() => {});
 }
 $("control").checked = state.control;
 $("control").onchange = (e) => {
@@ -401,15 +462,16 @@ const send = (line) => invoke?.("fan_cmd", { line }).catch(() => {});
 function controlTick() {
   if (!real || !invoke) return;
   for (const f of FANS) {
+    const drive = state.control && isVisible(f);
     if (isAmdOd8(f)) {
-      const key = state.control ? amdCurve(applied()[f.id].points) : null;
+      const key = drive ? amdCurve(applied()[f.id].points) : null;
       if (key !== hw.amdKey) { send(key ? `amdcurve ${key}` : "amddefault"); hw.amdKey = key; }
-      noResponse[state.control && hw.od8Overridden ? "add" : "delete"](f.id);
+      noResponse[drive && hw.od8Overridden ? "add" : "delete"](f.id);
       continue;
     }
     if (!f.ctrl) continue;
     const ap = applied()[f.id], s = SENSORS.find((q) => q.id === ap.sensor), t = sim.t[ap.sensor];
-    if (!state.control || !(t > 0)) {
+    if (!drive || !(t > 0)) {
       if (sent[f.id]) { send(`default ${f.ctrl}`); delete sent[f.id]; noResponse.delete(f.id); }
       continue;
     }
@@ -429,7 +491,7 @@ function setSource() {
   $("foot-note").textContent = !real ? "Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo."
     : state.control ? "Controllo attivo: la ventola segue la curva applicata. Chiudendo la finestra Vento resta nella tray."
     : "Controllo spento: le ventole restano in automatico. Attivalo per farle seguire le curve.";
-  b.textContent = real ? (state.control ? "Sensori reali · controllo attivo" : "Sensori reali · sola lettura") : "Dati simulati";
+  b.hidden = real; // the badge only warns that values are simulated
 }
 // Real hardware (Tauri sidecar). First message defines the sensor/fan lists; later ones update values.
 const guessRpmMax = (rpm) => Math.max(1000, Math.ceil((rpm * 1.4) / 100) * 100);
@@ -440,7 +502,6 @@ function onHardware(list) {
   let fans = list.filter((x) => x.type === "fan" && x.value >= 0);
   // A Super I/O chip reports every header on the board; show only the ones a fan is plugged into.
   for (const x of fans) if (x.value > 0 && !state.seenFans.has(x.id)) { state.seenFans.add(x.id); persist(); }
-  fans = fans.filter((x) => state.seenFans.has(x.id) || x.id.includes("/gpu"));
   const known = new Set(SENSORS.map((s) => s.id) );
   if (!real || temps.some((x) => !known.has(x.id)) || fans.some((x) => !FANS.some((f) => f.id === x.id))) {
     SENSORS = temps.map((x) => ({ id: x.id, name: `${shortHw(x.hw)} ${x.name}`, ...limits(x.id, x.hw) }));
@@ -451,7 +512,7 @@ function onHardware(list) {
       return { id: x.id, name: `${x.hw.split(" ").slice(-2).join(" ")} ${x.name}`, sensor: same?.id, maxRpm: guessRpmMax(x.value), ctrl: ctrl?.id };
     });
     real = true; sim.t = {}; sim.hist = {}; sim.rpm = {}; initStores(); ensureProfiles(); setSource();
-    state.fan = FANS[0]?.id; buildSensors(); buildFans(); renderAll();
+    state.fan = shownFans()[0]?.id; buildSensors(); buildFans(); renderAll();
   }
   for (const x of list) {
     if (x.type === "temp") { sim.t[x.id] = x.value; const h = sim.hist[x.id]; if (h) { h.push(x.value); if (h.length > TRAIL_S) h.shift(); } }
@@ -478,7 +539,7 @@ setInterval(() => {
   controlTick(); setSource();
   const bad = FANS.filter((f) => noResponse.has(f.id));
   $("warn-fan").hidden = !bad.length;
-  $("warn-fan").textContent = bad.length ? `${bad.map((f) => f.name).join(", ")} non segue Vento: chiudi altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software) o prova "Riavvia come amministratore".` : "";
+  $("warn-fan").textContent = bad.length ? `${bad.map(fanName).join(", ")} non segue Vento: chiudi altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software) o prova "Riavvia come amministratore".` : "";
   pushTray();
   $("admin").hidden = !(real && SENSORS.slice(0, 8).some((s) => !(sim.t[s.id] > 0)));
 }, TICK_MS);
