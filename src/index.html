@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vento</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="bar">
+  <h1 class="mark">vento</h1>
+  <div class="profiles" role="radiogroup" aria-label="Profilo" id="profiles"></div>
+  <span class="sim" id="sim" title="Nessun backend hardware collegato: i valori sono generati da un simulatore">Dati simulati</span>
+  <div class="actions">
+    <span class="dirty" id="dirty" role="status"></span>
+    <button type="button" id="revert" disabled>Ripristina</button>
+    <button type="button" id="apply" class="primary" disabled>Applica</button>
+  </div>
+</header>
+
+<section class="sensors" id="sensors" aria-label="Sensori"></section>
+
+<main class="work">
+  <nav class="rail" aria-label="Ventole">
+    <ul id="fans"></ul>
+  </nav>
+
+  <section class="editor" aria-labelledby="fan-title">
+    <div class="editor-head">
+      <h2 id="fan-title"></h2>
+      <label class="field">Sensore
+        <select id="sensor-select"></select>
+      </label>
+      <label class="field">Profilo di ventola
+        <select id="preset-select">
+          <option value="">Preset…</option>
+          <option value="silent">Silenzioso</option>
+          <option value="balanced">Bilanciato</option>
+          <option value="perf">Performance</option>
+          <option value="flat">Fisso 50%</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="chart-wrap">
+      <svg id="chart" role="application" aria-label="Curva ventola: temperatura contro velocità. Frecce per spostare il punto selezionato." tabindex="-1"></svg>
+      <p class="warn" id="warn" role="alert" hidden></p>
+    </div>
+
+    <div class="points">
+      <div class="point-fields">
+        <label class="field">Punto
+          <select id="pt-select"></select>
+        </label>
+        <label class="field">Temperatura °C
+          <input id="pt-temp" type="number" min="20" max="100" step="1" inputmode="numeric">
+        </label>
+        <label class="field">Velocità %
+          <input id="pt-duty" type="number" min="0" max="100" step="1" inputmode="numeric">
+        </label>
+      </div>
+      <div class="point-actions">
+        <button type="button" id="pt-add">Aggiungi punto</button>
+        <button type="button" id="pt-del">Elimina punto</button>
+      </div>
+      <p class="readout" id="now" aria-live="off"></p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <label class="check"><input type="checkbox" id="autostart"> Avvia con Windows</label>
+  <span id="foot-note">Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo.</span>
+</footer>
+<script src="app.js" type="module"></script>
+</body>
+</html>

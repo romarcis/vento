@@ -1,0 +1,14 @@
+{
+  "name": "vento",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build --no-bundle",
+    "web": "npx --yes serve src -l 5173"
+  },
+  "devDependencies": {
+    "@fontsource-variable/archivo": "5.2.8",
+    "@tauri-apps/cli": "^2"
+  }
+}
