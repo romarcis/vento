@@ -64,11 +64,12 @@ const state = {
   sel: 0,
   draft: null, // working copy of the active profile
   autostart: saved?.autostart ?? false,
+  control: saved?.control ?? false, // opt-in: drive the real fans
 };
 const applied = () => state.profiles[state.active];
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
-const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart });
+const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control });
 
 /* ---------- curves ---------- */
 function dutyAt(points, t) {
@@ -362,6 +363,11 @@ function pushTray() {
   const rpm = FANS.slice(0, 3).map((f) => `${f.name.split(" ")[0]} ${Math.round(sim.rpm[f.id])}`).join(" · ");
   invoke("set_tray_tooltip", { text: `Vento · ${PROFILE_NAMES[state.active]}\n${hot}\n${rpm} RPM` }).catch(() => {});
 }
+$("control").checked = state.control;
+$("control").onchange = (e) => {
+  state.control = e.target.checked; persist(); setSource(); controlTick();
+  if (!state.control) send("defaultall");
+};
 $("autostart").checked = state.autostart;
 $("autostart").onchange = async (e) => {
   state.autostart = e.target.checked; persist();
@@ -369,13 +375,39 @@ $("autostart").onchange = async (e) => {
 };
 
 /* ---------- boot ---------- */
+/* ---------- fan control ---------- */
+// Drives each controllable fan from its APPLIED curve (never the draft). Safety rules:
+// duty never below MIN_DUTY, 100% at the sensor's critical temperature, back to automatic
+// control when the sensor is unreadable, when control is switched off, or when Vento exits.
+const sent = {}; // fan id -> { duty, at }
+const noResponse = new Set();
+const send = (line) => invoke?.("fan_cmd", { line }).catch(() => {});
+function controlTick() {
+  if (!real || !invoke) return;
+  for (const f of FANS) {
+    if (!f.ctrl) continue;
+    const ap = applied()[f.id], s = SENSORS.find((q) => q.id === ap.sensor), t = sim.t[ap.sensor];
+    if (!state.control || !(t > 0)) {
+      if (sent[f.id]) { send(`default ${f.ctrl}`); delete sent[f.id]; noResponse.delete(f.id); }
+      continue;
+    }
+    const duty = t >= s.crit ? 100 : clamp(Math.round(dutyAt(ap.points, t)), MIN_DUTY, 100);
+    const last = sent[f.id];
+    if (!last || last.duty !== duty) { send(`set ${f.ctrl} ${duty}`); sent[f.id] = { duty, at: Date.now() }; }
+    // The fan reports its own duty back: if it ignores us for 6 s, say so instead of pretending.
+    const reported = sim.duty[f.id];
+    if (reported != null && Date.now() - sent[f.id].at > 6000) {
+      noResponse[Math.abs(reported - sent[f.id].duty) > 8 ? "add" : "delete"](f.id);
+    }
+  }
+}
 function setSource() {
   const b = $("sim");
-  b.textContent = real ? "Sensori reali · sola lettura" : "Dati simulati";
   b.dataset.real = String(real);
-  $("foot-note").textContent = real
-    ? "Le curve sono salvate ma ancora non pilotano le ventole: Vento per ora legge soltanto."
-    : "Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo.";
+  $("foot-note").textContent = !real ? "Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo."
+    : state.control ? "Controllo attivo: la ventola segue la curva applicata. Chiudendo la finestra Vento resta nella tray."
+    : "Controllo spento: le ventole restano in automatico. Attivalo per farle seguire le curve.";
+  b.textContent = real ? (state.control ? "Sensori reali · controllo attivo" : "Sensori reali · sola lettura") : "Dati simulati";
 }
 // Real hardware (Tauri sidecar). First message defines the sensor/fan lists; later ones update values.
 const guessRpmMax = (rpm) => Math.max(1000, Math.ceil((rpm * 1.4) / 100) * 100);
@@ -389,7 +421,8 @@ function onHardware(list) {
     const prefix = (id) => id.split("/").slice(0, 3).join("/");
     FANS = fans.map((x) => {
       const same = SENSORS.find((s) => prefix(s.id) === prefix(x.id)) ?? SENSORS[0];
-      return { id: x.id, name: `${x.hw.split(" ").slice(-2).join(" ")} ${x.name}`, sensor: same?.id, maxRpm: guessRpmMax(x.value) };
+      const ctrl = list.find((q) => q.type === "ctrl" && q.hw === x.hw && q.name === x.name);
+      return { id: x.id, name: `${x.hw.split(" ").slice(-2).join(" ")} ${x.name}`, sensor: same?.id, maxRpm: guessRpmMax(x.value), ctrl: ctrl?.id };
     });
     real = true; sim.t = {}; sim.hist = {}; sim.rpm = {}; initStores(); ensureProfiles(); setSource();
     state.fan = FANS[0]?.id; buildSensors(); buildFans(); renderAll();
@@ -410,6 +443,10 @@ setInterval(() => {
   const ap = applied()[state.fan]; if (!ap) { nowEl.textContent = ""; return; }
   const t = sim.t[ap.sensor];
   nowEl.innerHTML = t > 0 ? `Ora: <b>${t.toFixed(1)} °C</b> → <b>${dutyAt(ap.points, t).toFixed(0)}%</b> · ${Math.round(sim.rpm[state.fan])} RPM` : "Sensore non leggibile (servono diritti di amministratore)";
+  controlTick(); setSource();
+  const bad = FANS.filter((f) => noResponse.has(f.id));
+  $("warn-fan").hidden = !bad.length;
+  $("warn-fan").textContent = bad.length ? `${bad.map((f) => f.name).join(", ")} non risponde ai comandi: prova "Riavvia come amministratore".` : "";
   pushTray();
   $("admin").hidden = !(real && SENSORS.slice(0, 8).some((s) => !(sim.t[s.id] > 0)));
 }, TICK_MS);

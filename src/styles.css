@@ -172,3 +172,6 @@ input[type=checkbox] { accent-color: var(--orange); width: 15px; height: 15px; p
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+.warnfan { color: #1a1917; background: var(--warn); font-weight: 700; padding: 2px 8px; border-radius: var(--r); }
+.warnfan[hidden] { display: none; }

@@ -69,8 +69,10 @@
 </main>
 
 <footer class="foot">
+  <label class="check"><input type="checkbox" id="control"> Pilota le ventole</label>
   <label class="check"><input type="checkbox" id="autostart"> Avvia con Windows</label>
   <button type="button" id="admin" hidden title="Alcuni sensori (CPU, schede madri) si leggono solo con diritti di amministratore">Riavvia come amministratore</button>
+  <span class="warnfan" id="warn-fan" role="alert" hidden></span>
   <span id="foot-note">Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo.</span>
 </footer>
 <script src="app.js" type="module"></script>

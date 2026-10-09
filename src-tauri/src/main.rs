@@ -1,8 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
+use std::sync::Mutex;
 use std::os::windows::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use tauri::{Emitter, 
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -13,6 +14,20 @@ use tauri::{Emitter,
 fn set_tray_tooltip(app: AppHandle, text: String) {
     if let Some(t) = app.tray_by_id("main") {
         let _ = t.set_tooltip(Some(text));
+    }
+}
+
+/// stdin of the sensor sidecar; commands are "set <id> <pct>", "default <id>", "defaultall".
+struct Sidecar(Mutex<Option<ChildStdin>>);
+
+#[tauri::command]
+fn fan_cmd(state: tauri::State<Sidecar>, line: String) {
+    // Only the three verbs the sidecar understands, one line each.
+    let ok = ["set ", "default "].iter().any(|v| line.starts_with(v)) || line == "defaultall";
+    if !ok || line.contains('\n') { return; }
+    if let Some(w) = state.0.lock().unwrap().as_mut() {
+        let _ = writeln!(w, "{line}");
+        let _ = w.flush();
     }
 }
 
@@ -39,14 +54,16 @@ fn spawn_sensors(app: AppHandle) {
         .find(|p| p.exists());
     let Some(exe) = exe else { return };
     std::thread::spawn(move || loop {
-        let child = Command::new(&exe).current_dir(exe.parent().unwrap()).creation_flags(0x0800_0000).stdout(Stdio::piped()).spawn();
+        let child = Command::new(&exe).current_dir(exe.parent().unwrap()).creation_flags(0x0800_0000).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn();
         if let Ok(mut child) = child {
+            *app.state::<Sidecar>().0.lock().unwrap() = child.stdin.take();
             if let Some(out) = child.stdout.take() {
                 for line in BufReader::new(out).lines().map_while(Result::ok) {
                     let _ = app.emit("sensors", line);
                 }
             }
             let _ = child.wait();
+            *app.state::<Sidecar>().0.lock().unwrap() = None;
         }
         std::thread::sleep(std::time::Duration::from_secs(5)); // sidecar died or failed: retry
     });
@@ -67,7 +84,7 @@ fn main() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
-        .invoke_handler(tauri::generate_handler![set_tray_tooltip, restart_as_admin])
+        .invoke_handler(tauri::generate_handler![set_tray_tooltip, restart_as_admin, fan_cmd])
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Apri Vento", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Esci", true, None::<&str>)?;
@@ -79,7 +96,7 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, e| match e.id.as_ref() {
                     "open" => show(app),
-                    "quit" => app.exit(0),
+                    "quit" => { app.state::<Sidecar>().0.lock().unwrap().take(); app.exit(0) } // closing stdin makes the sidecar restore automatic fan control
                     _ => {}
                 })
                 .on_tray_icon_event(|t, e| {
@@ -88,6 +105,7 @@ fn main() {
                     }
                 })
                 .build(app)?;
+            app.manage(Sidecar(Mutex::new(None)));
             spawn_sensors(app.handle().clone());
             Ok(())
         })
