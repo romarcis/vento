@@ -154,7 +154,7 @@ input[type=checkbox] { accent-color: var(--orange); width: 15px; height: 15px; p
 .title input { font-size: 18px; font-weight: 700; width: 260px; }
 button.quiet { background: transparent; border-color: transparent; color: var(--ink-2); padding: 4px 8px; font-size: 13px; }
 button.quiet:hover:not(:disabled) { background: var(--raise); border-color: var(--line); color: var(--ink); }
-.preset-actions, .preset-form { display: flex; align-items: end; gap: 8px; }
+.preset-actions, .preset-form { display: flex; align-items: center; gap: 8px; }
 .preset-form[hidden], .preset-actions[hidden], .title [hidden] { display: none; }
 .preset-form input { width: 180px; }
 .editor-head .field { min-width: 150px; }
@@ -252,7 +252,8 @@ body[data-view="settings"] .work { display: none; }
 .setting small { color: var(--ink-2); font-size: 13px; }
 
 /* apply / revert sit right above the chart */
-.chart-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 32px; margin-bottom: -2px; }
+.chart-bar { display: flex; align-items: center; gap: 10px; min-height: 34px; margin-bottom: -2px; }
+.chart-bar .spacer { flex: 1; }
 
 /* start-up warning */
 .conflicts { max-width: 520px; padding: 24px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 12px 40px var(--shadow); }
@@ -283,3 +284,14 @@ body[data-view="settings"] .work { display: none; }
 .theme-choice label:has(input:checked) { background: var(--orange); color: var(--on-accent); font-weight: 700; }
 .theme-choice label:has(input:focus-visible) { outline: 2px solid var(--orange); outline-offset: -2px; }
 .setting.static { cursor: default; }
+
+.title-wrap { margin-right: auto; min-width: 0; display: grid; gap: 2px; }
+.title-wrap .title { margin-right: 0; }
+.preset-now { margin: 0; font-size: 13px; color: var(--ink-2); }
+.preset-now b { color: var(--ink); font-weight: 600; }
+
+/* drag to reorder fans in the rail */
+#fans li[draggable="true"] { cursor: grab; }
+#fans li.dragging { opacity: .4; }
+#fans li.drop-before { box-shadow: inset 0 2px 0 var(--orange); }
+#fans li.drop-after { box-shadow: inset 0 -2px 0 var(--orange); }

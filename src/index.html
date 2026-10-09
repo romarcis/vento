@@ -27,10 +27,13 @@
 
   <section class="editor" aria-labelledby="fan-title">
     <div class="editor-head">
-      <div class="title">
-        <h2 id="fan-title"></h2>
-        <input id="rename-input" type="text" maxlength="40" aria-label="Nome ventola" hidden>
-        <button type="button" id="rename" class="quiet">Rinomina</button>
+      <div class="title-wrap">
+        <div class="title">
+          <h2 id="fan-title"></h2>
+          <input id="rename-input" type="text" maxlength="40" aria-label="Nome ventola" hidden>
+          <button type="button" id="rename" class="quiet">Rinomina</button>
+        </div>
+        <p class="preset-now" id="preset-now"></p>
       </div>
       <label class="field">Sensore
         <select id="sensor-select"></select>
@@ -38,20 +41,19 @@
       <label class="field">Preset
         <select id="preset-select"></select>
       </label>
-      <div class="preset-actions" id="preset-actions">
-        <button type="button" id="preset-save">Salva come preset</button>
-        <button type="button" id="preset-del" disabled>Elimina</button>
-      </div>
-      <form class="preset-form" id="preset-form" hidden>
-        <label class="field">Nome preset
-          <input id="preset-name" type="text" maxlength="30" required>
-        </label>
-        <button type="submit" class="primary">Salva</button>
-        <button type="button" id="preset-cancel">Annulla</button>
-      </form>
     </div>
 
     <div class="chart-bar">
+      <div class="preset-actions" id="preset-actions">
+        <button type="button" id="preset-save">Salva come preset</button>
+        <button type="button" id="preset-del" disabled>Elimina preset</button>
+      </div>
+      <form class="preset-form" id="preset-form" hidden>
+        <input id="preset-name" type="text" maxlength="30" required placeholder="Nome preset" aria-label="Nome preset">
+        <button type="submit" class="primary">Salva</button>
+        <button type="button" id="preset-cancel">Annulla</button>
+      </form>
+      <span class="spacer"></span>
       <span class="dirty" id="dirty" role="status"></span>
       <button type="button" id="revert" disabled>Ripristina</button>
       <button type="button" id="apply" class="primary" disabled>Applica</button>
@@ -87,6 +89,8 @@
   <button type="button" role="menuitem" id="fan-menu-toggle">Disabilita</button>
   <p id="fan-menu-note"></p>
   <button type="button" role="menuitem" id="fan-menu-tray">Mostra temperatura nella tray</button>
+  <button type="button" role="menuitem" id="fan-menu-up">Sposta su</button>
+  <button type="button" role="menuitem" id="fan-menu-down">Sposta giù</button>
   <div class="menu-colors">
     <span>Colore</span>
     <div class="swatches" id="fan-menu-colors"></div>

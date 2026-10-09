@@ -75,18 +75,28 @@ const state = {
   seenFans: new Set(saved?.seenFans ?? []), // headers that have ever spun
   fanVisible: saved?.fanVisible ?? {},       // fan id -> shown in the rail (user's choice)
   fanColors: saved?.fanColors ?? {},         // fan id -> "#rrggbb"
-  trayFans: saved?.trayFans ?? [],           // fan ids with their own temperature icon in the tray
+  trayFans: saved?.trayFans ?? [],
+  fanOrder: saved?.fanOrder ?? [],         // fan ids in the user's rail order           // fan ids with their own temperature icon in the tray
 };
 const applied = () => state.profiles[state.active];
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
-const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, runAsAdmin: state.runAsAdmin, trayIcon: state.trayIcon, warnAtStart: state.warnAtStart, theme: state.theme, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible, fanColors: state.fanColors, trayFans: state.trayFans });
+const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, runAsAdmin: state.runAsAdmin, trayIcon: state.trayIcon, warnAtStart: state.warnAtStart, theme: state.theme, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible, fanColors: state.fanColors, trayFans: state.trayFans, fanOrder: state.fanOrder });
 const SWATCHES = ["#ff6a1a", "#f2c23a", "#86c77e", "#3fc1c9", "#5b8cff", "#b07cff", "#ff5fa2", "#ece7dc"];
 const fanColor = (f) => state.fanColors[f.id] || SWATCHES[Math.max(0, FANS.indexOf(f)) % SWATCHES.length];
 const fanTemp = (f) => sim.t[applied()[f.id]?.sensor];
 // Until the user picks, show fans that have spun at least once (a Super I/O chip lists every header).
 const isVisible = (f) => !real || (state.fanVisible[f.id] ?? (state.seenFans.has(f.id) || f.id.includes("/gpu")));
-const shownFans = () => FANS.filter(isVisible);
+// Rail order: the user's order first, fans they never placed after, in detection order.
+const rank = (f) => { const i = state.fanOrder.indexOf(f.id); return i < 0 ? 1e6 + FANS.indexOf(f) : i; };
+const shownFans = () => FANS.filter(isVisible).sort((a, b) => rank(a) - rank(b));
+function moveFan(id, beforeId) {
+  const order = shownFans().map((f) => f.id).filter((x) => x !== id);
+  const i = beforeId == null ? order.length : order.indexOf(beforeId);
+  order.splice(i < 0 ? order.length : i, 0, id);
+  state.fanOrder = [...order, ...state.fanOrder.filter((x) => !order.includes(x))];
+  persist(); buildFans(); renderAll();
+}
 const fanName = (f) => state.fanNames[f.id] || f.name;
 
 /* ---------- curves ---------- */
@@ -167,6 +177,24 @@ function buildFans() {
     b.innerHTML = `<span class="n"><i class="chip"></i><span class="nm"></span></span><span class="rpm"><span class="r">--</span><small>°C</small></span><span class="meta"></span><span class="duty"></span><span class="scale"><i></i></span><span class="tag"></span>`;
     b.onclick = () => { state.fan = f.id; state.sel = 0; renderAll(); };
     b.oncontextmenu = (e) => { e.preventDefault(); openFanMenu(f, e); };
+    // Drag a row onto another to move it there (Sposta su/giù in the context menu does the same).
+    li.draggable = true; li.dataset.id = f.id;
+    li.ondragstart = (e) => { e.dataTransfer.setData("text/plain", f.id); e.dataTransfer.effectAllowed = "move"; li.classList.add("dragging"); };
+    li.ondragend = () => li.classList.remove("dragging");
+    li.ondragover = (e) => {
+      e.preventDefault();
+      const after = e.clientY > li.getBoundingClientRect().top + li.offsetHeight / 2;
+      li.classList.toggle("drop-after", after); li.classList.toggle("drop-before", !after);
+    };
+    li.ondragleave = () => li.classList.remove("drop-before", "drop-after");
+    li.ondrop = (e) => {
+      e.preventDefault();
+      const id = e.dataTransfer.getData("text/plain"), after = li.classList.contains("drop-after");
+      li.classList.remove("drop-before", "drop-after");
+      if (!id || id === f.id) return;
+      const list = shownFans().map((x) => x.id), next = list[list.indexOf(f.id) + 1];
+      moveFan(id, after ? (next === id ? list[list.indexOf(f.id) + 2] : next) : f.id);
+    };
     li.appendChild(b); ul.appendChild(li);
   }
   buildFanPicker();
@@ -199,6 +227,11 @@ function openFanMenu(f, e) {
   item.disabled = !canStop(f) && !off;
   $("fan-menu-note").textContent = canStop(f) ? (off ? "" : "Ferma la ventola per riconoscerla") : "Questa ventola non si può fermare da Vento";
   item.onclick = () => { closeFanMenu(); setStopped(f, !off); };
+  const list = shownFans().map((x) => x.id), at = list.indexOf(f.id);
+  $("fan-menu-up").disabled = at <= 0;
+  $("fan-menu-down").disabled = at >= list.length - 1;
+  $("fan-menu-up").onclick = () => { closeFanMenu(); moveFan(f.id, list[at - 1]); $("f-" + f.id)?.focus(); };
+  $("fan-menu-down").onclick = () => { closeFanMenu(); moveFan(f.id, list[at + 2]); $("f-" + f.id)?.focus(); };
   const inTray = state.trayFans.includes(f.id);
   $("fan-menu-tray").textContent = inTray ? "Rimuovi temperatura dalla tray" : "Mostra temperatura nella tray";
   $("fan-menu-tray").disabled = !invoke;
@@ -473,6 +506,14 @@ function renderEditor(preset) {
   if (!f) { $("fan-title").textContent = "Nessuna ventola rilevata"; chart.textContent = ""; return; }
   $("sensor-select").innerHTML = SENSORS.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
   $("fan-title").textContent = fanName(f);
+  // Name the preset the applied curve came from (matched by its points), so "in use" is always true.
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b), ap = applied()[f.id].points;
+  const custom = customPresets().find((p) => same(p.points, ap));
+  const builtin = Object.keys(PRESETS).find((k) => same(PRESETS[k], ap));
+  $("preset-now").innerHTML = "Preset in uso: ";
+  const b = document.createElement("b");
+  b.textContent = custom?.name ?? (builtin ? BUILTIN[builtin] : "curva personalizzata");
+  $("preset-now").appendChild(b);
   renderPresets(preset);
   $("sensor-select").value = state.draft[f.id].sensor;
   // An AMD Overdrive8 GPU runs the curve in its own driver, on its own temperature.
