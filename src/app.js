@@ -356,6 +356,7 @@ function drawChart() {
   live.cross = el("line", { class: "cross", y1: Y(D_MAX), y2: Y(D_MIN) }, chart);
   live.op = el("circle", { class: "op", r: 6 }, chart);
   live.opl = el("text", { class: "op-label" }, chart);
+  live.handles = el("g", {}, chart); // drawn last, so the points sit above every other layer
   live.pts = [];
   updateChart();
 }
@@ -370,7 +371,7 @@ function updateChart() {
   while (live.pts.length > pts.length) live.pts.pop().remove();
   while (live.pts.length < pts.length) {
     const i = live.pts.length;
-    const c = el("circle", { class: "pt", r: 6, tabindex: 0, role: "slider" }, chart);
+    const c = el("circle", { class: "pt", r: 6, tabindex: 0, role: "slider" }, live.handles);
     c.addEventListener("pointerdown", (e) => startDrag(e, c));
     c.addEventListener("keydown", (e) => keyMove(e, c));
     c.addEventListener("focus", () => { state.sel = +c.dataset.i; syncPointFields(); markSel(); });
@@ -381,7 +382,6 @@ function updateChart() {
     c.dataset.i = i; c.setAttribute("cx", X(t)); c.setAttribute("cy", Y(d));
     c.setAttribute("aria-label", tx("point_aria", { i: i + 1, t, d }));
     c.setAttribute("aria-valuetext", `${t} °C, ${d}%`);
-    chart.appendChild(c); // keep handles on top
   });
   markSel();
   // live marker
@@ -415,16 +415,26 @@ function movePoint(i, t, d) {
   pts[i] = [clamp(Math.round(t), lo, hi), clamp(Math.round(d), D_MIN, D_MAX)];
   afterEdit();
 }
+// Pointer capture keeps the drag on the point even when the mouse leaves it; the DOM node must never
+// move while captured (that drops the capture), and redraws are batched to one per frame.
 function startDrag(e, c) {
   e.preventDefault(); c.focus(); c.setPointerCapture(e.pointerId);
   const i = +c.dataset.i; state.sel = i;
+  const r = chart.getBoundingClientRect();
+  let last = null, frame = 0;
   const move = (ev) => {
-    const r = chart.getBoundingClientRect();
-    movePoint(i, unX(((ev.clientX - r.left) / r.width) * W), unY(((ev.clientY - r.top) / r.height) * H));
+    last = ev;
+    frame ||= requestAnimationFrame(() => {
+      frame = 0;
+      movePoint(i, unX(((last.clientX - r.left) / r.width) * W), unY(((last.clientY - r.top) / r.height) * H));
+    });
+  };
+  const end = () => {
+    c.removeEventListener("pointermove", move);
+    for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) c.removeEventListener(t, end);
   };
   c.addEventListener("pointermove", move);
-  const up = () => { c.removeEventListener("pointermove", move); c.removeEventListener("pointerup", up); };
-  c.addEventListener("pointerup", up);
+  for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) c.addEventListener(t, end);
 }
 function keyMove(e, c) {
   const i = +c.dataset.i, [t, d] = state.draft[state.fan].points[i], s = e.shiftKey ? 5 : 1;
