@@ -13,3 +13,9 @@ Servono Node, Rust e Visual Studio Build Tools.
 Il sidecar si compila con il `csc.exe` di .NET Framework già presente in Windows (vedi `sidecar/VentoSensors.cs`; le DLL in `sidecar/bin` sono LibreHardwareMonitorLib e dipendenze, licenza MPL-2.0).
 La cartella `dist-portable` è portable: nessun installer, il profilo WebView2 e le impostazioni stanno in `vento-data/` accanto all'exe. Richiede WebView2 (incluso in Windows 11).
 `npm run web` serve la sola UI nel browser.
+
+## Release
+Ogni tag `v*` pubblica una release su GitHub con lo zip portable (workflow `.github/workflows/release.yml`):
+
+    git tag v0.2.0
+    git push origin v0.2.0

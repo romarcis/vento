@@ -1,0 +1,36 @@
+name: Release
+
+# Push a tag like v0.2.0 -> builds the portable app and publishes it as a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build portable
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          Set-Content version.json "{`"version`":`"$v`"}"
+          & "$env:WINDIR\Microsoft.NET\Framework644.0.30319\csc.exe" -nologo -target:exe -out:sidecar/bin/vento-sensors.exe -r:sidecar/bin/LibreHardwareMonitorLib.dll sidecar/VentoSensors.cs
+          npx tauri build --no-bundle --config version.json
+          node scripts/portable.mjs
+          Compress-Archive -Path dist-portable/* -DestinationPath "Vento-$v-portable-win64.zip"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: Vento-*-portable-win64.zip
+          generate_release_notes: true
