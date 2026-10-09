@@ -79,17 +79,70 @@ fn is_elevated() -> bool {
     unsafe { IsUserAnAdmin() != 0 }
 }
 
+const TASK: &str = "Vento";
+
+fn powershell(script: &str) -> bool {
+    Command::new("powershell").creation_flags(NO_WINDOW).args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Runs a PowerShell script with admin rights: directly when we already have them, otherwise
+/// through a single UAC prompt. Returns false when the user declines.
+fn powershell_admin(script: &str) -> bool {
+    if is_elevated() { return powershell(script); }
+    let file = std::env::temp_dir().join("vento-task.ps1");
+    if std::fs::write(&file, script).is_err() { return false; }
+    let ok = powershell(&format!(
+        "$p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','{}'; exit $p.ExitCode",
+        file.display()
+    ));
+    let _ = std::fs::remove_file(file);
+    ok
+}
+
+fn task_exists() -> bool {
+    Command::new("schtasks").creation_flags(NO_WINDOW).args(["/query", "/tn", TASK])
+        .stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Like Fan Control: a logon task with highest privileges starts Vento elevated without asking.
+/// Creating or removing it needs admin once.
 #[tauri::command]
-fn restart_as_admin(app: AppHandle) {
-    if let Ok(exe) = std::env::current_exe() {
-        let ok = Command::new("powershell")
-            .creation_flags(NO_WINDOW)
-            .args(["-NoProfile", "-Command", &format!("Start-Process -FilePath '{}' -Verb RunAs", exe.display())])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if ok { quit(&app); } // UAC declined: keep running as we are
-    }
+async fn autostart_set(enable: bool) -> bool {
+    let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default().replace('\'', "''");
+    // The old Run-key autostart (previous Vento versions) is dropped in both cases.
+    let cleanup = "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'Vento' -ErrorAction SilentlyContinue";
+    let script = if enable {
+        format!("{cleanup}
+$a = New-ScheduledTaskAction -Execute '{exe}'
+$t = New-ScheduledTaskTrigger -AtLogOn -User \"$env:USERDOMAIN\\$env:USERNAME\"
+$p = New-ScheduledTaskPrincipal -UserId \"$env:USERDOMAIN\\$env:USERNAME\" -LogonType Interactive -RunLevel Highest
+$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName '{TASK}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null")
+    } else {
+        format!("{cleanup}
+Unregister-ScheduledTask -TaskName '{TASK}' -Confirm:$false -ErrorAction SilentlyContinue")
+    };
+    if !task_exists() && !enable { powershell(cleanup); return false; }
+    powershell_admin(&script);
+    task_exists()
+}
+
+#[tauri::command]
+async fn autostart_status() -> bool {
+    task_exists()
+}
+
+/// Elevate: through the logon task when it exists (no prompt), otherwise one UAC prompt.
+#[tauri::command]
+async fn restart_as_admin(app: AppHandle) {
+    let via_task = task_exists()
+        && Command::new("schtasks").creation_flags(NO_WINDOW).args(["/run", "/tn", TASK])
+            .stdout(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
+    let ok = via_task || std::env::current_exe().map(|exe| powershell(&format!(
+        "Start-Process -FilePath '{}' -Verb RunAs", exe.display().to_string().replace('\'', "''")
+    ))).unwrap_or(false);
+    if ok { quit(&app); } // UAC declined: keep running as we are
 }
 
 /// Which of the given process names (e.g. "fancontrol.exe") are running right now.
@@ -164,14 +217,14 @@ fn main() {
         std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir);
     }
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
         .invoke_handler(tauri::generate_handler![
             set_tray_tooltip, set_main_tray, restart_as_admin, is_elevated, running_processes,
+            autostart_set, autostart_status,
             fan_cmd, set_temp_tray, remove_temp_tray
         ])
         .setup(|app| {
             app.manage(Sidecar(Mutex::new(None)));
-            tray(app.handle(), TrayIconBuilder::with_id("main").icon(app.default_window_icon().unwrap().clone()).tooltip("Vento"))?;
+            tray(app.handle(), TrayIconBuilder::with_id("main").icon(tauri::image::Image::new_owned(include_bytes!("../icons/tray.rgba").to_vec(), 64, 64)) /* 3 wind lines, transparent; source: icons/tray.png */.tooltip("Vento"))?;
             spawn_sensors(app.handle().clone());
             Ok(())
         })

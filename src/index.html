@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vento</title>
 <link rel="stylesheet" href="styles.css">
+<script src="theme.js"></script>
 </head>
 <body>
 <header class="bar">
@@ -14,8 +15,6 @@
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
   </button>
 </header>
-
-<section class="sensors" id="sensors" aria-label="Sensori"></section>
 
 <main class="work">
   <nav class="rail" aria-label="Ventole">
@@ -101,10 +100,17 @@
     <h2 id="settings-title">Impostazioni</h2>
   </div>
   <ul class="setting-list">
+    <li><div class="setting static" role="radiogroup" aria-labelledby="theme-label">
+      <span><b id="theme-label">Tema</b><small>Automatico segue il tema chiaro o scuro di Windows.</small>
+        <span class="theme-choice">
+          <label><input type="radio" name="theme" value="auto"> Automatico</label>
+          <label><input type="radio" name="theme" value="light"> Chiaro</label>
+          <label><input type="radio" name="theme" value="dark"> Scuro</label>
+        </span></span></div></li>
     <li><label class="setting"><input type="checkbox" id="autostart">
-      <span><b>Avvia con Windows</b><small>Vento parte all'accesso e applica le curve in background.</small></span></label></li>
+      <span><b>Avvia con Windows</b><small>Vento parte all'accesso già come amministratore, senza chiedere conferma (come Fan Control). Attivarlo o disattivarlo chiede conferma a Windows una sola volta.</small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="run-admin">
-      <span><b>Avvia come amministratore</b><small>Serve per leggere la CPU e pilotare le ventole della scheda madre. Windows chiederà conferma a ogni avvio.</small></span></label></li>
+      <span><b>Avvia come amministratore</b><small>Serve per leggere la CPU e pilotare le ventole della scheda madre. Con "Avvia con Windows" attivo non chiede conferma; altrimenti Windows la chiede a ogni avvio.</small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="tray-icon">
       <span><b>Mostra l'icona dell'app nella tray</b><small>Senza icone nella tray, chiudere la finestra chiude Vento e le ventole tornano in automatico.</small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="warn-start">

@@ -1,5 +1,10 @@
 {
   "identifier": "default",
-  "windows": ["main"],
-  "permissions": ["core:default", "autostart:allow-enable", "autostart:allow-disable", "autostart:allow-is-enabled"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-theme"
+  ]
 }

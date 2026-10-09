@@ -69,6 +69,7 @@ const state = {
   runAsAdmin: saved?.runAsAdmin ?? false,
   trayIcon: saved?.trayIcon ?? true,
   warnAtStart: saved?.warnAtStart ?? true,
+  theme: saved?.theme ?? "auto", // "auto" | "light" | "dark"
   fanNames: saved?.fanNames ?? {},     // fan id -> user's name
   fanPresets: saved?.fanPresets ?? {}, // fan id -> [{ name, points }]
   seenFans: new Set(saved?.seenFans ?? []), // headers that have ever spun
@@ -79,7 +80,7 @@ const state = {
 const applied = () => state.profiles[state.active];
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
-const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, runAsAdmin: state.runAsAdmin, trayIcon: state.trayIcon, warnAtStart: state.warnAtStart, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible, fanColors: state.fanColors, trayFans: state.trayFans });
+const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, runAsAdmin: state.runAsAdmin, trayIcon: state.trayIcon, warnAtStart: state.warnAtStart, theme: state.theme, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible, fanColors: state.fanColors, trayFans: state.trayFans });
 const SWATCHES = ["#ff6a1a", "#f2c23a", "#86c77e", "#3fc1c9", "#5b8cff", "#b07cff", "#ff5fa2", "#ece7dc"];
 const fanColor = (f) => state.fanColors[f.id] || SWATCHES[Math.max(0, FANS.indexOf(f)) % SWATCHES.length];
 const fanTemp = (f) => sim.t[applied()[f.id]?.sensor];
@@ -157,37 +158,13 @@ $("apply").onclick = () => {
 $("revert").onclick = () => { state.draft = clone(applied()); state.sel = 0; renderAll(); };
 
 /* ---------- sensors strip ---------- */
-function buildSensors() {
-  const box = $("sensors"); box.textContent = "";
-  for (const s of SENSORS.slice(0, 8)) {
-    const d = document.createElement("div"); d.className = "sensor"; d.id = "s-" + s.id;
-    d.innerHTML = `<span class="name"></span><span class="val"><span class="v">--</span><small>°C</small></span><span class="scale"><i></i></span><span class="tag"></span>`;
-    d.querySelector(".name").textContent = s.name;
-    box.appendChild(d);
-  }
-}
-function updateSensors() {
-  for (const s of SENSORS.slice(0, 8)) {
-    const v = sim.t[s.id], d = $("s-" + s.id);
-    if (!(v > 0)) { // a driver-gated sensor reads 0 without admin rights
-      d.dataset.state = "off"; d.querySelector(".v").textContent = "--";
-      d.querySelector("i").style.width = "0"; d.querySelector(".tag").textContent = "Serve admin"; continue;
-    }
-    const st = v >= s.crit ? "crit" : v >= s.warn ? "warn" : "ok";
-    d.dataset.state = st;
-    d.querySelector(".v").textContent = v.toFixed(0);
-    d.querySelector("i").style.width = clamp((v / s.max) * 100, 0, 100) + "%";
-    d.querySelector(".tag").textContent = st === "crit" ? "Critico" : st === "warn" ? "Alto" : "Normale";
-  }
-}
-
 /* ---------- fan rail ---------- */
 function buildFans() {
   const ul = $("fans"); ul.textContent = "";
   for (const f of shownFans()) {
     const li = document.createElement("li");
     const b = document.createElement("button"); b.type = "button"; b.className = "fan"; b.id = "f-" + f.id;
-    b.innerHTML = `<span class="n"><i class="chip"></i><span class="nm"></span></span><span class="rpm"><span class="r">--</span><small>°C</small></span><span class="meta"></span><span class="duty"></span>`;
+    b.innerHTML = `<span class="n"><i class="chip"></i><span class="nm"></span></span><span class="rpm"><span class="r">--</span><small>°C</small></span><span class="meta"></span><span class="duty"></span><span class="scale"><i></i></span><span class="tag"></span>`;
     b.onclick = () => { state.fan = f.id; state.sel = 0; renderAll(); };
     b.oncontextmenu = (e) => { e.preventDefault(); openFanMenu(f, e); };
     li.appendChild(b); ul.appendChild(li);
@@ -295,6 +272,11 @@ function updateFans() {
     b.querySelector(".chip").style.background = fanColor(f);
     const t = fanTemp(f);
     b.querySelector(".r").textContent = t > 0 ? t.toFixed(0) : "--";
+    const s = SENSORS.find((q) => q.id === applied()[f.id].sensor);
+    const st = !(t > 0) || !s ? "off" : t >= s.crit ? "crit" : t >= s.warn ? "warn" : "ok";
+    b.dataset.temp = st;
+    b.querySelector(".scale i").style.width = st === "off" ? "0" : clamp((t / s.max) * 100, 0, 100) + "%";
+    b.querySelector(".tag").textContent = { off: "Serve admin", crit: "Critico", warn: "Alto", ok: "Normale" }[st];
     b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor)?.name ?? "Nessun sensore";
     b.querySelector(".duty").textContent = stopped.has(f.id) ? "Spenta" : `${Math.round((sim.rpm[f.id] ?? 0) / 10) * 10} RPM`;
   }
@@ -502,7 +484,7 @@ function renderEditor(preset) {
   syncPointFields();
   drawChart();
 }
-function renderAll() { if (!shownFans().some((f) => f.id === state.fan)) state.fan = shownFans()[0]?.id; renderActions(); updateSensors(); updateFans(); renderEditor(); }
+function renderAll() { if (!shownFans().some((f) => f.id === state.fan)) state.fan = shownFans()[0]?.id; renderActions(); updateFans(); renderEditor(); }
 
 /* ---------- tray / autostart (Tauri, optional) ---------- */
 const tauri = window.__TAURI__;
@@ -513,10 +495,13 @@ function pushTray() {
   const rpm = FANS.slice(0, 3).map((f) => `${fanName(f)} ${Math.round(sim.rpm[f.id])}`).join(" · ");
   invoke("set_tray_tooltip", { text: `Vento\n${hot}\n${rpm} RPM`.slice(0, 127) }).catch(() => {});
 }
+// Autostart lives in Task Scheduler; the checkbox always reflects what is really registered there.
 $("autostart").checked = state.autostart;
+invoke?.("autostart_status").then((on) => { state.autostart = on; $("autostart").checked = on; persist(); }).catch(() => {});
 $("autostart").onchange = async (e) => {
-  state.autostart = e.target.checked; persist();
-  try { await invoke?.("plugin:autostart|" + (state.autostart ? "enable" : "disable")); } catch {}
+  e.target.disabled = true;
+  try { state.autostart = await invoke("autostart_set", { enable: e.target.checked }); } catch { state.autostart = false; }
+  e.target.checked = state.autostart; e.target.disabled = false; persist();
 };
 
 /* ---------- settings view ---------- */
@@ -532,6 +517,16 @@ $("run-admin").checked = state.runAsAdmin;
 $("run-admin").onchange = (e) => { state.runAsAdmin = e.target.checked; persist(); if (state.runAsAdmin) elevateIfNeeded(); };
 $("tray-icon").checked = state.trayIcon;
 $("tray-icon").onchange = (e) => { state.trayIcon = e.target.checked; persist(); invoke?.("set_main_tray", { visible: state.trayIcon }); setSource(); };
+// Theme: CSS tokens switch on <html data-theme>; the native title bar follows along.
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+  tauri?.window?.getCurrentWindow?.().setTheme(state.theme === "auto" ? null : state.theme).catch(() => {});
+}
+for (const r of document.querySelectorAll('input[name="theme"]')) {
+  r.checked = r.value === state.theme;
+  r.onchange = () => { state.theme = r.value; persist(); applyTheme(); };
+}
+applyTheme();
 $("warn-start").checked = state.warnAtStart;
 $("warn-start").onchange = (e) => { state.warnAtStart = e.target.checked; persist(); };
 async function elevateIfNeeded() {
@@ -653,7 +648,7 @@ function onHardware(list) {
       return { id: x.id, name: `${x.hw.split(" ").slice(-2).join(" ")} ${x.name}`, sensor: same?.id, maxRpm: guessRpmMax(x.value), ctrl: ctrl?.id };
     });
     real = true; sim.t = {}; sim.hist = {}; sim.rpm = {}; initStores(); ensureProfiles(); setSource();
-    state.fan = shownFans()[0]?.id; buildSensors(); buildFans(); renderAll();
+    state.fan = shownFans()[0]?.id; buildFans(); renderAll();
   }
   for (const x of list) {
     if (x.type === "temp") { sim.t[x.id] = x.value; const h = sim.hist[x.id]; if (h) { h.push(x.value); if (h.length > TRAIL_S) h.shift(); } }
@@ -672,10 +667,10 @@ window.__TAURI__?.event?.listen("sensors", (e) => {
 initStores(); ensureProfiles(); setSource();
 invoke?.("set_main_tray", { visible: state.trayIcon });
 elevateIfNeeded().then(warnConflicts);
-buildSensors(); buildFans(); buildEditorControls(); renderAll();
+buildFans(); buildEditorControls(); renderAll();
 const nowEl = $("now");
 setInterval(() => {
-  simStep(); updateSensors(); updateFans(); updateChart();
+  simStep(); updateFans(); updateChart();
   const ap = applied()[state.fan]; if (!ap) { nowEl.textContent = ""; return; }
   const t = sim.t[ap.sensor];
   nowEl.innerHTML = t > 0 ? `Ora: <b>${t.toFixed(1)} °C</b> → <b>${dutyAt(ap.points, t).toFixed(0)}%</b> · ${Math.round(sim.rpm[state.fan])} RPM` : "Sensore non leggibile (servono diritti di amministratore)";
