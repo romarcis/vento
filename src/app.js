@@ -346,6 +346,9 @@ function renderEditor() {
   $("sensor-select").innerHTML = SENSORS.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
   $("fan-title").textContent = f.name;
   $("sensor-select").value = state.draft[f.id].sensor;
+  // An AMD Overdrive8 GPU runs the curve in its own driver, on its own temperature.
+  $("sensor-select").disabled = isAmdOd8(f);
+  $("sensor-select").title = isAmdOd8(f) ? "La GPU applica la curva da sola, sulla propria temperatura" : "";
   const pts = state.draft[f.id].points;
   $("pt-select").innerHTML = pts.map((_, i) => `<option value="${i}">${i + 1}</option>`).join("");
   state.sel = clamp(state.sel, 0, pts.length - 1);
@@ -366,7 +369,7 @@ function pushTray() {
 $("control").checked = state.control;
 $("control").onchange = (e) => {
   state.control = e.target.checked; persist(); setSource(); controlTick();
-  if (!state.control) send("defaultall");
+  if (!state.control) { send("defaultall"); hw.amdKey = null; }
 };
 $("autostart").checked = state.autostart;
 $("autostart").onchange = async (e) => {
@@ -380,11 +383,29 @@ $("autostart").onchange = async (e) => {
 // duty never below MIN_DUTY, 100% at the sensor's critical temperature, back to automatic
 // control when the sensor is unreadable, when control is switched off, or when Vento exits.
 const sent = {}; // fan id -> { duty, at }
+const hw = { od8: false, od8Overridden: false, amdKey: null }; // AMD Overdrive8 GPU: curve lives in the driver
+const isAmdOd8 = (f) => hw.od8 && f.id.startsWith("/gpu-amd");
+// The driver takes exactly 5 points: resample the applied curve across its own temperature span.
+function amdCurve(points) {
+  const t0 = clamp(points[0][0], 25, 95), t1 = clamp(points[points.length - 1][0], t0 + 4, 100);
+  const out = [];
+  for (let i = 0; i < 5; i++) {
+    const t = Math.round(t0 + ((t1 - t0) * i) / 4);
+    out.push(t, clamp(Math.round(dutyAt(points, t)), MIN_DUTY, 100));
+  }
+  return out.join(" ");
+}
 const noResponse = new Set();
 const send = (line) => invoke?.("fan_cmd", { line }).catch(() => {});
 function controlTick() {
   if (!real || !invoke) return;
   for (const f of FANS) {
+    if (isAmdOd8(f)) {
+      const key = state.control ? amdCurve(applied()[f.id].points) : null;
+      if (key !== hw.amdKey) { send(key ? `amdcurve ${key}` : "amddefault"); hw.amdKey = key; }
+      noResponse[state.control && hw.od8Overridden ? "add" : "delete"](f.id);
+      continue;
+    }
     if (!f.ctrl) continue;
     const ap = applied()[f.id], s = SENSORS.find((q) => q.id === ap.sensor), t = sim.t[ap.sensor];
     if (!state.control || !(t > 0)) {
@@ -433,7 +454,13 @@ function onHardware(list) {
     else if (x.type === "ctrl") { const fan = list.find((q) => q.type === "fan" && q.hw === x.hw && q.name === x.name); if (fan) sim.duty[fan.id] = x.value; }
   }
 }
-window.__TAURI__?.event?.listen("sensors", (e) => { try { onHardware(JSON.parse(e.payload).sensors); } catch {} });
+window.__TAURI__?.event?.listen("sensors", (e) => {
+  try {
+    const m = JSON.parse(e.payload);
+    hw.od8 = !!m.od8; hw.od8Overridden = !!m.od8Overridden;
+    onHardware(m.sensors);
+  } catch {}
+});
 
 initStores(); ensureProfiles(); setSource();
 buildSensors(); buildFans(); buildEditorControls(); renderAll();
@@ -446,7 +473,7 @@ setInterval(() => {
   controlTick(); setSource();
   const bad = FANS.filter((f) => noResponse.has(f.id));
   $("warn-fan").hidden = !bad.length;
-  $("warn-fan").textContent = bad.length ? `${bad.map((f) => f.name).join(", ")} non risponde ai comandi: prova "Riavvia come amministratore".` : "";
+  $("warn-fan").textContent = bad.length ? `${bad.map((f) => f.name).join(", ")} non segue Vento: chiudi altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software) o prova "Riavvia come amministratore".` : "";
   pushTray();
   $("admin").hidden = !(real && SENSORS.slice(0, 8).some((s) => !(sim.t[s.id] > 0)));
 }, TICK_MS);

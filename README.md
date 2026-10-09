@@ -2,7 +2,7 @@
 
 App Windows portable per gestire le ventole del PC: curve ventola/temperatura, sensori live, profili, tray e avvio con Windows. Tauri 2 + UI web.
 
-**Stato:** legge i sensori reali (temperature e RPM) tramite LibreHardwareMonitor in un piccolo processo accanto all'app (`sidecar/`). Senza diritti di amministratore CPU e schede madri restano illeggibili: il pulsante "Riavvia come amministratore" li abilita. Sola lettura: le curve si salvano ma non pilotano ancora le ventole. Se il sidecar manca, l'app va in modalità simulata (badge "Dati simulati").
+**Stato:** legge i sensori reali (temperature e RPM) tramite LibreHardwareMonitor in un piccolo processo accanto all'app (`sidecar/`). Senza diritti di amministratore CPU e schede madri restano illeggibili: il pulsante "Riavvia come amministratore" li abilita. Con "Pilota le ventole" attivo ogni ventola segue la curva applicata; spegnendolo, o chiudendo Vento, le ventole tornano allo stato precedente. Le GPU AMD RX 5000 e successive ricevono la curva direttamente nel driver (Overdrive8, 5 punti), perché ignorano il comando di LibreHardwareMonitor. Non usare Vento insieme ad altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software): si sovrascrivono a vicenda, e Vento lo segnala. Se il sidecar manca, l'app va in modalità simulata (badge "Dati simulati").
 
 ## Build
 Servono Node, Rust e Visual Studio Build Tools.

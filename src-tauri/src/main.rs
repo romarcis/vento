@@ -22,8 +22,8 @@ struct Sidecar(Mutex<Option<ChildStdin>>);
 
 #[tauri::command]
 fn fan_cmd(state: tauri::State<Sidecar>, line: String) {
-    // Only the three verbs the sidecar understands, one line each.
-    let ok = ["set ", "default "].iter().any(|v| line.starts_with(v)) || line == "defaultall";
+    // Only the verbs the sidecar understands, one line each.
+    let ok = ["set ", "default ", "amdcurve "].iter().any(|v| line.starts_with(v)) || line == "defaultall" || line == "amddefault";
     if !ok || line.contains('\n') { return; }
     if let Some(w) = state.0.lock().unwrap().as_mut() {
         let _ = writeln!(w, "{line}");

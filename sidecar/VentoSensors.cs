@@ -44,10 +44,14 @@ class Program {
         foreach (IHardware sub in h.SubHardware) Collect(sub, sb, ref first);
     }
 
-    // Commands on stdin: "set <sensorId> <percent>", "default <sensorId>", "defaultall".
+    // Commands on stdin: "set <sensorId> <percent>", "default <sensorId>", "defaultall",
+    // "amdcurve t1 s1 ... t5 s5", "amddefault" (AMD Overdrive8 GPUs).
     // When stdin closes (parent gone) every fan goes back to its automatic mode.
     static void ResetAll() {
-        lock (controls) { foreach (ISensor s in controls.Values) { try { s.Control.SetDefault(); } catch { } } }
+        lock (controls) {
+            foreach (ISensor s in controls.Values) { try { s.Control.SetDefault(); } catch { } }
+            try { AmdOd8.Reset(); } catch { }
+        }
     }
     static void ReadCommands() {
         string line;
@@ -55,7 +59,13 @@ class Program {
             string[] p = line.Split(' ');
             try {
                 lock (controls) {
-                    if (p[0] == "defaultall") { foreach (ISensor s in controls.Values) s.Control.SetDefault(); }
+                    if (p[0] == "defaultall") { foreach (ISensor s in controls.Values) s.Control.SetDefault(); AmdOd8.Reset(); }
+                    else if (p[0] == "amddefault") AmdOd8.Reset();
+                    else if (p[0] == "amdcurve" && p.Length == 11) {
+                        int[] pts = new int[10];
+                        for (int k = 0; k < 10; k++) pts[k] = int.Parse(p[k + 1], CultureInfo.InvariantCulture);
+                        AmdOd8.SetCurve(pts);
+                    }
                     else if (p.Length >= 2 && !controls.ContainsKey(p[1])) Console.Error.WriteLine("not controllable: " + p[1]);
                     else if (p.Length >= 2) {
                         ISensor s = controls[p[1]];
@@ -80,6 +90,7 @@ class Program {
         pc.IsCpuEnabled = true; pc.IsGpuEnabled = true; pc.IsMotherboardEnabled = true;
         pc.IsStorageEnabled = true; pc.IsControllerEnabled = true;
         try { pc.Open(); } catch (Exception e) { Console.Error.WriteLine("open failed: " + e.Message); return 2; }
+        bool od8 = AmdOd8.Open();
         UpdateVisitor v = new UpdateVisitor();
         AppDomain.CurrentDomain.ProcessExit += delegate { ResetAll(); };
         Thread cmd = new Thread(ReadCommands); cmd.IsBackground = true; cmd.Start();
@@ -88,8 +99,10 @@ class Program {
             StringBuilder sb = new StringBuilder("{\"sensors\":[");
             bool first = true;
             lock (controls) { foreach (IHardware h in pc.Hardware) Collect(h, sb, ref first); }
-            sb.Append("]}");
+            sb.Append("],\"od8\":").Append(od8 ? "true" : "false").Append(",\"od8Applied\":").Append(AmdOd8.Applied ? "true" : "false")
+              .Append(",\"od8Overridden\":").Append(AmdOd8.Overridden() ? "true" : "false").Append('}');
             Console.Out.WriteLine(sb.ToString());
+            if (Environment.GetEnvironmentVariable("VENTO_DEBUG") != null) Console.Error.WriteLine(AmdOd8.CurveNow());
             Console.Out.Flush();
             Thread.Sleep(1000);
         }
