@@ -267,6 +267,26 @@ extern "system" {
     fn WaitForSingleObject(h: Handle, ms: u32) -> u32;
     fn GetLastError() -> u32;
 }
+#[link(name = "user32")]
+extern "system" {
+    fn CreateWindowExW(ex: u32, class: *const u16, title: *const u16, style: u32, x: i32, y: i32, w: i32, h: i32,
+        parent: Handle, menu: Handle, inst: Handle, param: *const core::ffi::c_void) -> Handle;
+    fn ShowWindow(hwnd: Handle, cmd: i32) -> i32;
+    fn DestroyWindow(hwnd: Handle) -> i32;
+}
+
+/// Windows ignores the first ShowWindow call of a process launched with a show state (Task
+/// Scheduler, UAC, shortcuts) and applies that state instead, so hiding Vento's window could
+/// maximise it. Spend that first call on a throwaway window before Tauri creates the real one.
+fn consume_startup_show_state() {
+    let class = wide("STATIC");
+    unsafe {
+        let h = CreateWindowExW(0, class.as_ptr(), std::ptr::null(), 0, 0, 0, 0, 0,
+            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null());
+        if !h.is_null() { ShowWindow(h, 0); DestroyWindow(h); } // 0 = SW_HIDE
+    }
+}
+
 const ERROR_ACCESS_DENIED: u32 = 5;
 const ERROR_ALREADY_EXISTS: u32 = 183;
 const EVENT_MODIFY_STATE: u32 = 0x0002;
@@ -305,6 +325,7 @@ fn listen_for_show(app: AppHandle) {
 
 fn main() {
     if !single_instance() { return; }
+    consume_startup_show_state();
     // Portable: keep WebView2 profile (localStorage = settings) next to the exe.
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("vento-data"))) {
         std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir);
