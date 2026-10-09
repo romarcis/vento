@@ -333,6 +333,7 @@ function drawChart() {
   chart.textContent = "";
   // critical zone: hot and slow
   el("rect", { class: "zone-crit", x: X(80), y: Y(70), width: X(T_MAX) - X(80), height: Y(0) - Y(70) }, chart);
+  el("text", { class: "zone-label crit", x: X(80) + 8, y: Y(70) + 16 }, chart).textContent = "Zona a rischio";
   for (let t = T_MIN; t <= T_MAX; t += 10) {
     el("line", { class: "grid major", x1: X(t), x2: X(t), y1: Y(D_MAX), y2: Y(D_MIN) }, chart);
     el("text", { x: X(t), y: H - M.b + 16, "text-anchor": "middle" }, chart).textContent = t;
@@ -346,6 +347,8 @@ function drawChart() {
   yl.textContent = "Velocità %";
 
   live.band = el("rect", { class: "band", y: Y(D_MAX), height: Y(D_MIN) - Y(D_MAX) }, chart);
+  live.bandl = el("text", { class: "zone-label", y: Y(D_MAX) + 16 }, chart);
+  live.bandl.textContent = "Ultimi 60 s";
   live.applied = el("path", { class: "applied" }, chart);
   live.draft = el("path", { class: "draft" }, chart);
   live.cross = el("line", { class: "cross", y1: Y(D_MAX), y2: Y(D_MIN) }, chart);
@@ -383,10 +386,15 @@ function updateChart() {
   const temp = sim.t[ap.sensor], duty = dutyAt(ap.points, temp);
   const hist = sim.hist[ap.sensor] ?? [];
   const valid = temp > 0;
-  for (const n of [live.cross, live.op, live.opl, live.band]) n.style.display = valid ? "" : "none";
+  for (const n of [live.cross, live.op, live.opl, live.band, live.bandl]) n.style.display = valid ? "" : "none";
   if (valid && hist.length) {
     const lo = Math.min(...hist), hi = Math.max(...hist);
-    live.band.setAttribute("x", X(clamp(lo, T_MIN, T_MAX))); live.band.setAttribute("width", Math.max(2, X(clamp(hi, T_MIN, T_MAX)) - X(clamp(lo, T_MIN, T_MAX))));
+    const bx = X(clamp(lo, T_MIN, T_MAX)), bw = Math.max(2, X(clamp(hi, T_MIN, T_MAX)) - bx);
+    live.band.setAttribute("x", bx); live.band.setAttribute("width", bw);
+    // Label inside a wide band; beside it (right edge, or left near the chart's end) when narrow.
+    const inside = bw > 90, end = bx + bw > W - M.r - 90;
+    live.bandl.setAttribute("x", inside ? bx + 8 : end ? bx - 8 : bx + bw + 8);
+    live.bandl.setAttribute("text-anchor", !inside && end ? "end" : "start");
   }
   const tx = X(clamp(temp, T_MIN, T_MAX));
   live.cross.setAttribute("x1", tx); live.cross.setAttribute("x2", tx);

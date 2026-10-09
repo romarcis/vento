@@ -172,6 +172,8 @@ button.quiet:hover:not(:disabled) { background: var(--raise); border-color: var(
 #chart .op { fill: var(--ground); stroke: var(--ink); stroke-width: 2; }
 #chart .op-label { fill: var(--ink); font-weight: 700; font-size: 12px; }
 #chart .zone-crit { fill: var(--crit); opacity: .09; }
+#chart .zone-label { font-size: 10px; font-stretch: 75%; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; fill: var(--ink-2); }
+#chart .zone-label.crit { fill: var(--crit); }
 #chart .pt { fill: var(--ground); stroke: var(--orange); stroke-width: 2; cursor: grab; transition: r .12s var(--ease); }
 #chart .pt:hover { r: 8; }
 #chart .pt.sel { fill: var(--orange); }
