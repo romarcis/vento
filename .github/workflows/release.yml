@@ -26,7 +26,7 @@ jobs:
         run: |
           $v = "${{ github.ref_name }}".TrimStart("v")
           Set-Content version.json "{`"version`":`"$v`"}"
-          & "$env:WINDIR\Microsoft.NET\Framework644.0.30319\csc.exe" -nologo -target:exe -out:sidecar/bin/vento-sensors.exe -r:sidecar/bin/LibreHardwareMonitorLib.dll sidecar/VentoSensors.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" -nologo -target:exe -out:sidecar/bin/vento-sensors.exe -r:sidecar/bin/LibreHardwareMonitorLib.dll sidecar/VentoSensors.cs
           npx tauri build --no-bundle --config version.json
           node scripts/portable.mjs
           Compress-Archive -Path dist-portable/* -DestinationPath "Vento-$v-portable-win64.zip"
