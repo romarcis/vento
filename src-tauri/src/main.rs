@@ -55,6 +55,7 @@ fn set_tray_labels(app: AppHandle, open: String, quit: String) {
 
 #[tauri::command]
 fn set_main_tray(app: AppHandle, visible: bool) {
+    log(&format!("set_main_tray visible={visible} temp_icons={}", TEMP_TRAYS.load(Ordering::SeqCst)));
     MAIN_TRAY.store(visible, Ordering::SeqCst);
     if let Some(t) = app.tray_by_id("main") {
         let _ = t.set_visible(visible);
@@ -66,7 +67,7 @@ fn set_main_tray(app: AppHandle, visible: bool) {
 /// so in that case the window is shown instead.
 fn ensure_reachable(app: &AppHandle) {
     if !MAIN_TRAY.load(Ordering::SeqCst) && TEMP_TRAYS.load(Ordering::SeqCst) == 0 {
-        show(app);
+        show(app, "no tray icon left");
     }
 }
 
@@ -169,7 +170,10 @@ fn legacy_autostart() -> bool {
 /// it. Once the UI is up it hides it again, as long as a tray icon can bring it back.
 #[tauri::command]
 fn startup_hide(app: AppHandle) {
-    if MAIN_TRAY.load(Ordering::SeqCst) || TEMP_TRAYS.load(Ordering::SeqCst) > 0 {
+    let reachable = MAIN_TRAY.load(Ordering::SeqCst) || TEMP_TRAYS.load(Ordering::SeqCst) > 0;
+    let visible = app.get_webview_window("main").and_then(|w| w.is_visible().ok());
+    log(&format!("startup_hide: reachable={reachable} visible_before={visible:?}"));
+    if reachable {
         if let Some(w) = app.get_webview_window("main") { let _ = w.hide(); }
     }
 }
@@ -219,7 +223,23 @@ fn spawn_sensors(app: AppHandle) {
     });
 }
 
-fn show(app: &AppHandle) {
+/// Start-up diary in vento-data/vento.log (kept small): what showed or hid the window, and why.
+fn log(msg: &str) {
+    use std::io::Write as _;
+    let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("vento-data"))) else { return };
+    let file = dir.join("vento.log");
+    if std::fs::metadata(&file).map(|m| m.len() > 200_000).unwrap_or(false) { let _ = std::fs::remove_file(&file); }
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(file) {
+        let _ = writeln!(f, "{secs} [{}] {msg}", std::process::id());
+    }
+}
+
+#[tauri::command]
+fn ui_log(msg: String) { log(&format!("ui: {msg}")); }
+
+fn show(app: &AppHandle, why: &str) {
+    log(&format!("show window: {why}"));
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -229,6 +249,7 @@ fn show(app: &AppHandle) {
 
 /// Closing the sidecar's stdin makes it hand every fan back to automatic control before we go.
 fn quit(app: &AppHandle) {
+    log("quit");
     app.state::<Sidecar>().0.lock().unwrap().take();
     app.exit(0);
 }
@@ -245,13 +266,13 @@ fn tray(app: &AppHandle, b: TrayIconBuilder<Wry>) -> tauri::Result<TrayIcon> {
     b.menu(&tray_menu(app)?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
-            "open" => show(app),
+            "open" => show(app, "tray menu"),
             "quit" => quit(app),
             _ => {}
         })
         .on_tray_icon_event(|t, e| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
-                show(t.app_handle());
+                show(t.app_handle(), "tray click");
             }
         })
         .build(app)
@@ -318,13 +339,14 @@ fn listen_for_show(app: AppHandle) {
     std::thread::spawn(move || loop {
         if unsafe { WaitForSingleObject(ev as Handle, u32::MAX) } == 0 {
             let a = app.clone();
-            let _ = app.run_on_main_thread(move || show(&a));
+            let _ = app.run_on_main_thread(move || show(&a, "another launch asked"));
         }
     });
 }
 
 fn main() {
-    if !single_instance() { return; }
+    log(&format!("start: elevated={} args={:?}", is_elevated(), std::env::args().skip(1).collect::<Vec<_>>()));
+    if !single_instance() { log("another instance is running: exit"); return; }
     consume_startup_show_state();
     // Portable: keep WebView2 profile (localStorage = settings) next to the exe.
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("vento-data"))) {
@@ -333,14 +355,25 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             set_tray_tooltip, set_tray_labels, set_main_tray, restart_as_admin, is_elevated, running_processes,
-            autostart_set, autostart_status, startup_hide,
+            autostart_set, autostart_status, startup_hide, ui_log,
             fan_cmd, set_temp_tray, remove_temp_tray
         ])
         .setup(|app| {
             app.manage(Sidecar(Mutex::new(None)));
+            log("setup: creating tray icon");
             tray(app.handle(), TrayIconBuilder::with_id("main").icon(tauri::image::Image::new_owned(include_bytes!("../icons/tray.rgba").to_vec(), 64, 64)) /* 3 wind lines, transparent; source: icons/tray.png */.tooltip("Vento"))?;
             spawn_sensors(app.handle().clone());
             listen_for_show(app.handle().clone());
+            // For the start-up diary: note every visibility change in the first minute, whoever caused it.
+            let h = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut last = None;
+                for _ in 0..120 {
+                    let v = h.get_webview_window("main").and_then(|w| w.is_visible().ok());
+                    if v != last { log(&format!("window visible={v:?}")); last = v; }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            });
             if is_elevated() && legacy_autostart() {
                 std::thread::spawn(|| set_autostart(true));
             }

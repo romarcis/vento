@@ -730,11 +730,11 @@ applyI18n();
 invoke?.("set_tray_labels", { open: tx("tray_open"), quit: tx("tray_quit") });
 initStores(); ensureProfiles(); setSource();
 // Vento starts hidden in the tray. Without the app icon, a temperature icon must exist first; its
-// fans are known only once the sensors answer, so wait for the first one (Rust shows the window
-// if no icon is left at all).
+// fans are known only once the sensors answer (well over 8 s at sign-in), so the app icon stays
+// until the first one appears, however long that takes (Rust shows the window if no icon is left).
 let hideAppIconWhenReady = !state.trayIcon && state.trayFans.length > 0;
 if (!hideAppIconWhenReady) invoke?.("set_main_tray", { visible: state.trayIcon });
-else setTimeout(() => { if (hideAppIconWhenReady) { hideAppIconWhenReady = false; invoke?.("set_main_tray", { visible: false }); } }, 8000);
+invoke?.("ui_log", { msg: `boot trayIcon=${state.trayIcon} trayFans=${state.trayFans.length} runAsAdmin=${state.runAsAdmin}` });
 invoke?.("startup_hide");
 elevateIfNeeded().then(warnConflicts);
 buildFans(); buildEditorControls(); renderAll();
