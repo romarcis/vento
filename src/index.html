@@ -105,20 +105,20 @@
   </div>
   <ul class="setting-list">
     <li><div class="setting static" role="radiogroup" aria-labelledby="theme-label">
-      <span><b id="theme-label">Tema</b><small>Automatico segue il tema chiaro o scuro di Windows.</small>
+      <span><b id="theme-label">Tema</b><small>L'opzione Automatico adotta il tema chiaro o scuro impostato in Windows.</small>
         <span class="theme-choice">
           <label><input type="radio" name="theme" value="auto"> Automatico</label>
           <label><input type="radio" name="theme" value="light"> Chiaro</label>
           <label><input type="radio" name="theme" value="dark"> Scuro</label>
         </span></span></div></li>
     <li><label class="setting"><input type="checkbox" id="autostart">
-      <span><b>Avvia con Windows</b><small>Vento parte all'accesso già come amministratore, senza chiedere conferma (come Fan Control). Attivarlo o disattivarlo chiede conferma a Windows una sola volta.</small></span></label></li>
+      <span><b>Avvia con Windows</b><small>Avvia Vento all'accesso dell'utente con privilegi di amministratore, senza richiesta di conferma. L'attivazione e la disattivazione richiedono una sola autorizzazione di Windows.</small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="run-admin">
-      <span><b>Avvia come amministratore</b><small>Serve per leggere la CPU e pilotare le ventole della scheda madre. Con "Avvia con Windows" attivo non chiede conferma; altrimenti Windows la chiede a ogni avvio.</small></span></label></li>
+      <span><b>Avvia come amministratore</b><small>Necessario per la lettura della temperatura della CPU e per il controllo delle ventole della scheda madre. Se l'avvio con Windows è attivo, non viene richiesta alcuna conferma; in caso contrario, Windows la richiede a ogni avvio.</small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="tray-icon">
-      <span><b>Mostra l'icona dell'app nella tray</b><small>Senza icone nella tray, chiudere la finestra chiude Vento e le ventole tornano in automatico.</small></span></label></li>
+      <span><b>Mostra l'icona dell'applicazione nell'area di notifica</b><small>In assenza di icone nell'area di notifica, la chiusura della finestra termina Vento e restituisce il controllo delle ventole al sistema.</small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="warn-start">
-      <span><b>Avvisa all'avvio dei programmi in conflitto</b><small>Fan Control, Afterburner e simili si contendono le ventole con Vento.</small></span></label></li>
+      <span><b>Segnala all'avvio i programmi in conflitto</b><small>Programmi come Fan Control o MSI Afterburner controllano le stesse ventole e ne impediscono la corretta gestione da parte di Vento.</small></span></label></li>
   </ul>
 </section>
 
