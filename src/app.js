@@ -1,6 +1,8 @@
 // Vento: fan-curve editor. Data comes from a simulator until a hardware backend exists.
 // ponytail: simulator is the only DataSource; swap `readSensors` for a Tauri invoke when a backend lands.
 
+import { t as tx, applyI18n } from "./i18n.js";
+
 const SVGNS = "http://www.w3.org/2000/svg";
 const T_MIN = 20, T_MAX = 100, D_MIN = 0, D_MAX = 100;
 const MIN_DUTY = 20; // below this most fans stall
@@ -12,15 +14,15 @@ const SIM_SENSORS = [
   { id: "gpu", name: "GPU Core", warn: 78, crit: 88, max: 100 },
   { id: "vrm", name: "VRM", warn: 85, crit: 100, max: 120 },
   { id: "ssd", name: "SSD NVMe", warn: 65, crit: 75, max: 90 },
-  { id: "case", name: "Aria case", warn: 45, crit: 55, max: 70 },
-  { id: "wtr", name: "Liquido", warn: 42, crit: 50, max: 60 },
+  { id: "case", name: tx("sim_case"), warn: 45, crit: 55, max: 70 },
+  { id: "wtr", name: tx("sim_liquid"), warn: 42, crit: 50, max: 60 },
 ];
 const SIM_FANS = [
   { id: "cpu", name: "CPU Fan", sensor: "cpu", maxRpm: 2200 },
   { id: "gpu", name: "GPU Fan", sensor: "gpu", maxRpm: 3100 },
-  { id: "front", name: "Frontale ×2", sensor: "case", maxRpm: 1500 },
-  { id: "rear", name: "Posteriore", sensor: "case", maxRpm: 1500 },
-  { id: "pump", name: "Pompa AIO", sensor: "wtr", maxRpm: 3000 },
+  { id: "front", name: tx("sim_front"), sensor: "case", maxRpm: 1500 },
+  { id: "rear", name: tx("sim_rear"), sensor: "case", maxRpm: 1500 },
+  { id: "pump", name: tx("sim_pump"), sensor: "wtr", maxRpm: 3000 },
 ];
 let SENSORS = SIM_SENSORS, FANS = SIM_FANS;
 let real = false; // true once the hardware sidecar delivers data
@@ -30,8 +32,8 @@ const PRESETS = {
   perf: [[30, 40], [45, 55], [58, 75], [70, 95], [80, 100]],
   flat: [[30, 50], [90, 50]],
 };
-const PROFILE_NAMES = { silent: "Silenzioso", balanced: "Bilanciato", perf: "Performance" };
-const BUILTIN = { silent: "Silenzioso", balanced: "Bilanciato", perf: "Performance", flat: "Fisso 50%" };
+const PROFILE_NAMES = { silent: tx("p_silent"), balanced: tx("p_balanced"), perf: tx("p_perf") };
+const BUILTIN = { ...PROFILE_NAMES, flat: tx("p_flat") };
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -112,8 +114,8 @@ function dutyAt(points, t) {
   return points[points.length - 1][1];
 }
 function unsafe(points) {
-  if (dutyAt(points, 80) < 70) return "Curva non sicura: sopra 80 °C la ventola resta sotto il 70%.";
-  if (points.some((p) => p[1] < MIN_DUTY)) return `Sotto il ${MIN_DUTY}% molte ventole si fermano.`;
+  if (dutyAt(points, 80) < 70) return tx("unsafe_hot");
+  if (points.some((p) => p[1] < MIN_DUTY)) return tx("unsafe_min", { n: MIN_DUTY });
   return "";
 }
 
@@ -156,11 +158,11 @@ function simStep() {
 }
 
 /* ---------- header ---------- */
-function confirmDiscard() { return window.confirm("Ci sono modifiche non applicate. Scartarle?"); }
+function confirmDiscard() { return window.confirm(tx("confirm_discard")); }
 function renderActions() {
   const d = anyDirty();
   $("apply").disabled = !d; $("revert").disabled = !d;
-  $("dirty").textContent = d ? "Modifiche non applicate" : "";
+  $("dirty").textContent = d ? tx("unsaved") : "";
 }
 $("apply").onclick = () => {
   state.profiles[state.active] = clone(state.draft); persist(); renderAll();
@@ -177,7 +179,7 @@ function buildFans() {
     b.innerHTML = `<span class="n"><i class="chip"></i><span class="nm"></span></span><span class="rpm"><span class="r">--</span><small>°C</small></span><span class="meta"></span><span class="duty"></span><span class="scale"><i></i></span><span class="tag"></span>`;
     b.onclick = () => { state.fan = f.id; state.sel = 0; renderAll(); };
     b.oncontextmenu = (e) => { e.preventDefault(); openFanMenu(f, e); };
-    // Drag a row onto another to move it there (Sposta su/giù in the context menu does the same).
+    // Drag a row onto another to move it there (Move up/down in the context menu does the same).
     li.draggable = true; li.dataset.id = f.id;
     li.ondragstart = (e) => { e.dataTransfer.setData("text/plain", f.id); e.dataTransfer.effectAllowed = "move"; li.classList.add("dragging"); };
     li.ondragend = () => li.classList.remove("dragging");
@@ -223,9 +225,9 @@ const canStop = (f) => real && f.ctrl && !isAmdOd8(f);
 function openFanMenu(f, e) {
   const m = $("fan-menu"), item = $("fan-menu-toggle");
   const off = stopped.has(f.id);
-  item.textContent = off ? "Abilita" : "Disabilita";
+  item.textContent = off ? tx("enable") : tx("disable");
   item.disabled = !canStop(f) && !off;
-  $("fan-menu-note").textContent = canStop(f) ? (off ? "" : "Ferma la ventola per riconoscerla") : "Questa ventola non si può fermare da Vento";
+  $("fan-menu-note").textContent = canStop(f) ? (off ? "" : tx("stop_hint")) : tx("cannot_stop");
   item.onclick = () => { closeFanMenu(); setStopped(f, !off); };
   const list = shownFans().map((x) => x.id), at = list.indexOf(f.id);
   $("fan-menu-up").disabled = at <= 0;
@@ -233,14 +235,14 @@ function openFanMenu(f, e) {
   $("fan-menu-up").onclick = () => { closeFanMenu(); moveFan(f.id, list[at - 1]); $("f-" + f.id)?.focus(); };
   $("fan-menu-down").onclick = () => { closeFanMenu(); moveFan(f.id, list[at + 2]); $("f-" + f.id)?.focus(); };
   const inTray = state.trayFans.includes(f.id);
-  $("fan-menu-tray").textContent = inTray ? "Rimuovi temperatura dalla tray" : "Mostra temperatura nella tray";
+  $("fan-menu-tray").textContent = inTray ? tx("tray_hide") : tx("tray_show");
   $("fan-menu-tray").disabled = !invoke;
   $("fan-menu-tray").onclick = () => { closeFanMenu(); setTray(f, !inTray); };
   const sw = $("fan-menu-colors"); sw.textContent = "";
   for (const c of SWATCHES) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "swatch"; b.style.background = c;
-    b.setAttribute("aria-label", "Colore " + c); b.setAttribute("aria-pressed", String(c === fanColor(f)));
+    b.setAttribute("aria-label", tx("color_n", { c })); b.setAttribute("aria-pressed", String(c === fanColor(f)));
     b.onclick = () => { setColor(f, c); closeFanMenu(); };
     sw.appendChild(b);
   }
@@ -309,9 +311,9 @@ function updateFans() {
     const st = !(t > 0) || !s ? "off" : t >= s.crit ? "crit" : t >= s.warn ? "warn" : "ok";
     b.dataset.temp = st;
     b.querySelector(".scale i").style.width = st === "off" ? "0" : clamp((t / s.max) * 100, 0, 100) + "%";
-    b.querySelector(".tag").textContent = { off: "Serve admin", crit: "Critico", warn: "Alto", ok: "Normale" }[st];
-    b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor)?.name ?? "Nessun sensore";
-    b.querySelector(".duty").textContent = stopped.has(f.id) ? "Spenta" : `${Math.round((sim.rpm[f.id] ?? 0) / 10) * 10} RPM`;
+    b.querySelector(".tag").textContent = tx({ off: "st_off", crit: "st_crit", warn: "st_warn", ok: "st_ok" }[st]);
+    b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor)?.name ?? tx("no_sensor");
+    b.querySelector(".duty").textContent = stopped.has(f.id) ? tx("stopped") : `${Math.round((sim.rpm[f.id] ?? 0) / 10) * 10} RPM`;
   }
 }
 
@@ -333,7 +335,7 @@ function drawChart() {
   chart.textContent = "";
   // critical zone: hot and slow
   el("rect", { class: "zone-crit", x: X(80), y: Y(70), width: X(T_MAX) - X(80), height: Y(0) - Y(70) }, chart);
-  el("text", { class: "zone-label crit", x: X(80) + 8, y: Y(70) + 16 }, chart).textContent = "Zona a rischio";
+  el("text", { class: "zone-label crit", x: X(80) + 8, y: Y(70) + 16 }, chart).textContent = tx("zone_risk");
   for (let t = T_MIN; t <= T_MAX; t += 10) {
     el("line", { class: "grid major", x1: X(t), x2: X(t), y1: Y(D_MAX), y2: Y(D_MIN) }, chart);
     el("text", { x: X(t), y: H - M.b + 16, "text-anchor": "middle" }, chart).textContent = t;
@@ -342,13 +344,13 @@ function drawChart() {
     el("line", { class: "grid major", x1: X(T_MIN), x2: X(T_MAX), y1: Y(d), y2: Y(d) }, chart);
     el("text", { x: M.l - 8, y: Y(d) + 4, "text-anchor": "end" }, chart).textContent = d;
   }
-  el("text", { class: "axis-label", x: (M.l + W - M.r) / 2, y: H - 6, "text-anchor": "middle" }, chart).textContent = "Temperatura °C";
+  el("text", { class: "axis-label", x: (M.l + W - M.r) / 2, y: H - 6, "text-anchor": "middle" }, chart).textContent = tx("temp_c");
   const yl = el("text", { class: "axis-label", transform: `translate(12 ${(M.t + H - M.b) / 2}) rotate(-90)`, "text-anchor": "middle" }, chart);
-  yl.textContent = "Velocità %";
+  yl.textContent = tx("speed_pct");
 
   live.band = el("rect", { class: "band", y: Y(D_MAX), height: Y(D_MIN) - Y(D_MAX) }, chart);
   live.bandl = el("text", { class: "zone-label", y: Y(D_MAX) + 16 }, chart);
-  live.bandl.textContent = "Ultimi 60 s";
+  live.bandl.textContent = tx("last_60");
   live.applied = el("path", { class: "applied" }, chart);
   live.draft = el("path", { class: "draft" }, chart);
   live.cross = el("line", { class: "cross", y1: Y(D_MAX), y2: Y(D_MIN) }, chart);
@@ -377,7 +379,7 @@ function updateChart() {
   pts.forEach(([t, d], i) => {
     const c = live.pts[i];
     c.dataset.i = i; c.setAttribute("cx", X(t)); c.setAttribute("cy", Y(d));
-    c.setAttribute("aria-label", `Punto ${i + 1}: ${t} °C, ${d}%`);
+    c.setAttribute("aria-label", tx("point_aria", { i: i + 1, t, d }));
     c.setAttribute("aria-valuetext", `${t} °C, ${d}%`);
     chart.appendChild(c); // keep handles on top
   });
@@ -396,10 +398,10 @@ function updateChart() {
     live.bandl.setAttribute("x", inside ? bx + 8 : end ? bx - 8 : bx + bw + 8);
     live.bandl.setAttribute("text-anchor", !inside && end ? "end" : "start");
   }
-  const tx = X(clamp(temp, T_MIN, T_MAX));
-  live.cross.setAttribute("x1", tx); live.cross.setAttribute("x2", tx);
-  live.op.setAttribute("cx", tx); live.op.setAttribute("cy", Y(duty));
-  live.opl.setAttribute("x", tx + (tx > W - 140 ? -16 : 16)); live.opl.setAttribute("text-anchor", tx > W - 140 ? "end" : "start");
+  const px = X(clamp(temp, T_MIN, T_MAX));
+  live.cross.setAttribute("x1", px); live.cross.setAttribute("x2", px);
+  live.op.setAttribute("cx", px); live.op.setAttribute("cy", Y(duty));
+  live.opl.setAttribute("x", px + (px > W - 140 ? -16 : 16)); live.opl.setAttribute("text-anchor", px > W - 140 ? "end" : "start");
   live.opl.setAttribute("y", Y(duty) - 18);
   live.opl.textContent = `${temp.toFixed(0)} °C → ${duty.toFixed(0)}%`;
   const w = unsafe(pts);
@@ -503,30 +505,30 @@ const customPresets = () => state.fanPresets[state.fan] ?? [];
 function renderPresets(selected = "") {
   const opt = (v, t) => `<option value="${v}">${t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)}</option>`;
   const custom = customPresets();
-  $("preset-select").innerHTML = opt("", "Scegli…")
-    + `<optgroup label="Predefiniti">${Object.entries(BUILTIN).map(([k, t]) => opt(`b:${k}`, t)).join("")}</optgroup>`
-    + (custom.length ? `<optgroup label="Personalizzati">${custom.map((p, i) => opt(`c:${i}`, p.name)).join("")}</optgroup>` : "");
+  $("preset-select").innerHTML = opt("", tx("choose"))
+    + `<optgroup label="${tx("builtin")}">${Object.entries(BUILTIN).map(([k, t]) => opt(`b:${k}`, t)).join("")}</optgroup>`
+    + (custom.length ? `<optgroup label="${tx("custom")}">${custom.map((p, i) => opt(`c:${i}`, p.name)).join("")}</optgroup>` : "");
   $("preset-select").value = selected;
   $("preset-del").disabled = !selected.startsWith("c:");
 }
 function renderEditor(preset) {
   const f = FANS.find((x) => x.id === state.fan);
-  if (!f) { $("fan-title").textContent = "Nessuna ventola rilevata"; chart.textContent = ""; return; }
+  if (!f) { $("fan-title").textContent = tx("no_fans"); chart.textContent = ""; return; }
   $("sensor-select").innerHTML = SENSORS.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
   $("fan-title").textContent = fanName(f);
   // Name the preset the applied curve came from (matched by its points), so "in use" is always true.
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b), ap = applied()[f.id].points;
   const custom = customPresets().find((p) => same(p.points, ap));
   const builtin = Object.keys(PRESETS).find((k) => same(PRESETS[k], ap));
-  $("preset-now").innerHTML = "Preset in uso: ";
+  $("preset-now").textContent = tx("preset_in_use") + " ";
   const b = document.createElement("b");
-  b.textContent = custom?.name ?? (builtin ? BUILTIN[builtin] : "curva personalizzata");
+  b.textContent = custom?.name ?? (builtin ? BUILTIN[builtin] : tx("custom_curve"));
   $("preset-now").appendChild(b);
   renderPresets(preset);
   $("sensor-select").value = state.draft[f.id].sensor;
   // An AMD Overdrive8 GPU runs the curve in its own driver, on its own temperature.
   $("sensor-select").disabled = isAmdOd8(f);
-  $("sensor-select").title = isAmdOd8(f) ? "La GPU applica la curva da sola, sulla propria temperatura" : "";
+  $("sensor-select").title = isAmdOd8(f) ? tx("amd_sensor") : "";
   const pts = state.draft[f.id].points;
   $("pt-select").innerHTML = pts.map((_, i) => `<option value="${i}">${i + 1}</option>`).join("");
   state.sel = clamp(state.sel, 0, pts.length - 1);
@@ -600,7 +602,7 @@ async function warnConflicts() {
     const on = running.includes(exe);
     li.className = on ? "running" : "";
     li.append(name);
-    if (on) { const s = document.createElement("small"); s.textContent = "In esecuzione"; li.append(s); }
+    if (on) { const s = document.createElement("small"); s.textContent = tx("running"); li.append(s); }
     ul.appendChild(li);
   }
   $("conflicts-hide").checked = false;
@@ -635,11 +637,11 @@ function controlTick() {
   if (!real || !invoke) return;
   // Safety: any sensor at its critical temperature brings every stopped fan back at once.
   const hot = SENSORS.find((q) => sim.t[q.id] >= q.crit);
-  if (hot && stopped.size) { stopped.clear(); safety = `Ventole riaccese: ${hot.name} a ${sim.t[hot.id].toFixed(0)} °C`; }
+  if (hot && stopped.size) { stopped.clear(); safety = tx("fans_restarted", { s: hot.name, t: sim.t[hot.id].toFixed(0) }); }
   for (const f of FANS) {
     if (stopped.has(f.id) && canStop(f)) {
       const s = SENSORS.find((q) => q.id === applied()[f.id].sensor), t = sim.t[s?.id];
-      if (s && t >= s.warn) { stopped.delete(f.id); safety = `${fanName(f)} riaccesa: ${s.name} a ${t.toFixed(0)} °C`; }
+      if (s && t >= s.warn) { stopped.delete(f.id); safety = tx("fan_restarted", { f: fanName(f), s: s.name, t: t.toFixed(0) }); }
       else {
         if (sent[f.id]?.duty !== 0) { send(`set ${f.ctrl} 0`); sent[f.id] = { duty: 0, at: Date.now() }; }
         noResponse.delete(f.id);
@@ -673,8 +675,7 @@ function setSource() {
   const b = $("sim");
   b.dataset.real = String(real);
   $("foot-note").textContent = state.trayIcon || state.trayFans.length
-    ? "Chiudendo la finestra Vento resta nella tray e continua ad applicare le curve."
-    : "Chiudendo la finestra Vento si chiude e le ventole tornano in automatico.";
+    ? tx("note_tray") : tx("note_quit");
   b.hidden = real; // the badge only warns that values are simulated
 }
 // Real hardware (Tauri sidecar). First message defines the sensor/fan lists; later ones update values.
@@ -713,6 +714,8 @@ window.__TAURI__?.event?.listen("sensors", (e) => {
   } catch {}
 });
 
+applyI18n();
+invoke?.("set_tray_labels", { open: tx("tray_open"), quit: tx("tray_quit") });
 initStores(); ensureProfiles(); setSource();
 invoke?.("set_main_tray", { visible: state.trayIcon });
 elevateIfNeeded().then(warnConflicts);
@@ -722,11 +725,15 @@ setInterval(() => {
   simStep(); updateFans(); updateChart();
   const ap = applied()[state.fan]; if (!ap) { nowEl.textContent = ""; return; }
   const t = sim.t[ap.sensor];
-  nowEl.innerHTML = t > 0 ? `Ora: <b>${t.toFixed(1)} °C</b> → <b>${dutyAt(ap.points, t).toFixed(0)}%</b> · ${Math.round(sim.rpm[state.fan])} RPM` : "Sensore non leggibile (servono diritti di amministratore)";
+  nowEl.textContent = "";
+  if (t > 0) {
+    const b = (v) => Object.assign(document.createElement("b"), { textContent: v });
+    nowEl.append(tx("now") + " ", b(`${t.toFixed(1)} °C`), " → ", b(`${dutyAt(ap.points, t).toFixed(0)}%`), ` · ${Math.round(sim.rpm[state.fan])} RPM`);
+  } else nowEl.textContent = tx("unreadable");
   controlTick(); setSource();
   const bad = FANS.filter((f) => noResponse.has(f.id));
   $("warn-fan").hidden = !bad.length && !safety;
-  $("warn-fan").textContent = safety ? safety : bad.length ? `${bad.map(fanName).join(", ")} non segue Vento: chiudi altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software) o prova "Riavvia come amministratore".` : "";
+  $("warn-fan").textContent = safety ? safety : bad.length ? tx("not_following", { names: bad.map(fanName).join(", ") }) : "";
   pushTray(); trayTick();
   $("admin").hidden = !(real && SENSORS.slice(0, 8).some((s) => !(sim.t[s.id] > 0)));
 }, TICK_MS);

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,17 +10,17 @@
 <body>
 <header class="bar">
   <h1 class="mark">vento</h1>
-  <span class="sim" id="sim" title="Nessun backend hardware collegato: i valori sono generati da un simulatore">Dati simulati</span>
-  <button type="button" class="gear" id="settings-btn" aria-label="Impostazioni" aria-pressed="false" title="Impostazioni">
+  <span class="sim" id="sim" data-i18n="sim" data-i18n-title="sim_title"></span>
+  <button type="button" class="gear" id="settings-btn" data-i18n-aria-label="settings" data-i18n-title="settings" aria-pressed="false">
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
   </button>
 </header>
 
 <main class="work">
-  <nav class="rail" aria-label="Ventole">
+  <nav class="rail" data-i18n-aria-label="fans">
     <ul id="fans"></ul>
     <details class="fan-pick" id="fan-pick" hidden>
-      <summary>Ventole visibili <span id="fan-pick-count"></span></summary>
+      <summary><span data-i18n="visible_fans"></span> <span id="fan-pick-count"></span></summary>
       <div class="fan-pick-list" id="fan-pick-list"></div>
     </details>
   </nav>
@@ -30,55 +30,55 @@
       <div class="title-wrap">
         <div class="title">
           <h2 id="fan-title"></h2>
-          <input id="rename-input" type="text" maxlength="40" aria-label="Nome ventola" hidden>
-          <button type="button" id="rename" class="quiet">Rinomina</button>
+          <input id="rename-input" type="text" maxlength="40" data-i18n-aria-label="fan_name" hidden>
+          <button type="button" id="rename" class="quiet" data-i18n="rename"></button>
         </div>
         <p class="preset-now" id="preset-now"></p>
       </div>
-      <label class="field">Sensore
+      <label class="field"><span data-i18n="sensor"></span>
         <select id="sensor-select"></select>
       </label>
-      <label class="field">Preset
+      <label class="field"><span data-i18n="preset"></span>
         <select id="preset-select"></select>
       </label>
     </div>
 
     <div class="chart-bar">
       <div class="preset-actions" id="preset-actions">
-        <button type="button" id="preset-save">Salva come preset</button>
-        <button type="button" id="preset-del" disabled>Elimina preset</button>
+        <button type="button" id="preset-save" data-i18n="save_preset"></button>
+        <button type="button" id="preset-del" data-i18n="delete_preset" disabled></button>
       </div>
       <form class="preset-form" id="preset-form" hidden>
-        <input id="preset-name" type="text" maxlength="30" required placeholder="Nome preset" aria-label="Nome preset">
-        <button type="submit" class="primary">Salva</button>
-        <button type="button" id="preset-cancel">Annulla</button>
+        <input id="preset-name" type="text" maxlength="30" required data-i18n-placeholder="preset_name" data-i18n-aria-label="preset_name">
+        <button type="submit" class="primary" data-i18n="save"></button>
+        <button type="button" id="preset-cancel" data-i18n="cancel"></button>
       </form>
       <span class="spacer"></span>
       <span class="dirty" id="dirty" role="status"></span>
-      <button type="button" id="revert" disabled>Ripristina</button>
-      <button type="button" id="apply" class="primary" disabled>Applica</button>
+      <button type="button" id="revert" data-i18n="revert" disabled></button>
+      <button type="button" id="apply" class="primary" data-i18n="apply" disabled></button>
     </div>
 
     <div class="chart-wrap">
-      <svg id="chart" role="application" aria-label="Curva ventola: temperatura contro velocità. Frecce per spostare il punto selezionato." tabindex="-1"></svg>
+      <svg id="chart" role="application" data-i18n-aria-label="chart_aria" tabindex="-1"></svg>
       <p class="warn" id="warn" role="alert" hidden></p>
     </div>
 
     <div class="points">
       <div class="point-fields">
-        <label class="field">Punto
+        <label class="field"><span data-i18n="point"></span>
           <select id="pt-select"></select>
         </label>
-        <label class="field">Temperatura °C
+        <label class="field"><span data-i18n="temp_c"></span>
           <input id="pt-temp" type="number" min="20" max="100" step="1" inputmode="numeric">
         </label>
-        <label class="field">Velocità %
+        <label class="field"><span data-i18n="speed_pct"></span>
           <input id="pt-duty" type="number" min="0" max="100" step="1" inputmode="numeric">
         </label>
       </div>
       <div class="point-actions">
-        <button type="button" id="pt-add">Aggiungi punto</button>
-        <button type="button" id="pt-del">Elimina punto</button>
+        <button type="button" id="pt-add" data-i18n="add_point"></button>
+        <button type="button" id="pt-del" data-i18n="delete_point"></button>
       </div>
       <p class="readout" id="now" aria-live="off"></p>
     </div>
@@ -86,57 +86,57 @@
 </main>
 
 <div class="menu" id="fan-menu" role="menu" hidden>
-  <button type="button" role="menuitem" id="fan-menu-toggle">Disabilita</button>
+  <button type="button" role="menuitem" id="fan-menu-toggle"></button>
   <p id="fan-menu-note"></p>
-  <button type="button" role="menuitem" id="fan-menu-tray">Mostra temperatura nella tray</button>
-  <button type="button" role="menuitem" id="fan-menu-up">Sposta su</button>
-  <button type="button" role="menuitem" id="fan-menu-down">Sposta giù</button>
+  <button type="button" role="menuitem" id="fan-menu-tray"></button>
+  <button type="button" role="menuitem" id="fan-menu-up" data-i18n="move_up"></button>
+  <button type="button" role="menuitem" id="fan-menu-down" data-i18n="move_down"></button>
   <div class="menu-colors">
-    <span>Colore</span>
+    <span data-i18n="color"></span>
     <div class="swatches" id="fan-menu-colors"></div>
-    <label class="custom-color" title="Altro colore"><input type="color" id="fan-menu-custom" aria-label="Altro colore"></label>
+    <label class="custom-color" data-i18n-title="other_color"><input type="color" id="fan-menu-custom" data-i18n-aria-label="other_color"></label>
   </div>
 </div>
 
 <section class="settings" id="settings" aria-labelledby="settings-title" hidden>
   <div class="settings-head">
-    <button type="button" id="settings-back">Torna alle ventole</button>
-    <h2 id="settings-title">Impostazioni</h2>
+    <button type="button" id="settings-back" data-i18n="back"></button>
+    <h2 id="settings-title" data-i18n="settings"></h2>
   </div>
   <ul class="setting-list">
     <li><div class="setting static" role="radiogroup" aria-labelledby="theme-label">
-      <span><b id="theme-label">Tema</b><small>L'opzione Automatico adotta il tema chiaro o scuro impostato in Windows.</small>
+      <span><b id="theme-label" data-i18n="theme"></b><small data-i18n="theme_desc"></small>
         <span class="theme-choice">
-          <label><input type="radio" name="theme" value="auto"> Automatico</label>
-          <label><input type="radio" name="theme" value="light"> Chiaro</label>
-          <label><input type="radio" name="theme" value="dark"> Scuro</label>
+          <label><input type="radio" name="theme" value="auto"> <span data-i18n="theme_auto"></span></label>
+          <label><input type="radio" name="theme" value="light"> <span data-i18n="theme_light"></span></label>
+          <label><input type="radio" name="theme" value="dark"> <span data-i18n="theme_dark"></span></label>
         </span></span></div></li>
     <li><label class="setting"><input type="checkbox" id="autostart">
-      <span><b>Avvia con Windows</b><small>Avvia Vento all'accesso dell'utente con privilegi di amministratore, senza richiesta di conferma. L'attivazione e la disattivazione richiedono una sola autorizzazione di Windows.</small></span></label></li>
+      <span><b data-i18n="autostart"></b><small data-i18n="autostart_desc"></small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="run-admin">
-      <span><b>Avvia come amministratore</b><small>Necessario per la lettura della temperatura della CPU e per il controllo delle ventole della scheda madre. Se l'avvio con Windows è attivo, non viene richiesta alcuna conferma; in caso contrario, Windows la richiede a ogni avvio.</small></span></label></li>
+      <span><b data-i18n="run_admin"></b><small data-i18n="run_admin_desc"></small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="tray-icon">
-      <span><b>Mostra l'icona dell'applicazione nell'area di notifica</b><small>In assenza di icone nell'area di notifica, la chiusura della finestra termina Vento e restituisce il controllo delle ventole al sistema.</small></span></label></li>
+      <span><b data-i18n="tray_icon"></b><small data-i18n="tray_icon_desc"></small></span></label></li>
     <li><label class="setting"><input type="checkbox" id="warn-start">
-      <span><b>Segnala all'avvio i programmi in conflitto</b><small>Programmi come Fan Control o MSI Afterburner controllano le stesse ventole e ne impediscono la corretta gestione da parte di Vento.</small></span></label></li>
+      <span><b data-i18n="warn_start"></b><small data-i18n="warn_start_desc"></small></span></label></li>
   </ul>
 </section>
 
 <dialog class="conflicts" id="conflicts" aria-labelledby="conflicts-title">
-  <h2 id="conflicts-title">Chiudi gli altri programmi per le ventole</h2>
-  <p>Vento pilota le ventole in continuazione. Se un altro programma fa lo stesso, i due si sovrascrivono a vicenda e le ventole non seguono la curva.</p>
+  <h2 id="conflicts-title" data-i18n="conflicts_title"></h2>
+  <p data-i18n="conflicts_body"></p>
   <ul id="conflicts-list"></ul>
-  <p class="note">Disattiva anche il tuning delle ventole in Radeon Software o nell'utility della scheda madre, se lo usi.</p>
+  <p class="note" data-i18n="conflicts_note"></p>
   <form method="dialog" class="conflicts-actions">
-    <label class="check"><input type="checkbox" id="conflicts-hide"> Non mostrare più</label>
-    <button type="submit" class="primary" id="conflicts-ok">Ho capito</button>
+    <label class="check"><input type="checkbox" id="conflicts-hide"> <span data-i18n="dont_show"></span></label>
+    <button type="submit" class="primary" id="conflicts-ok" data-i18n="got_it"></button>
   </form>
 </dialog>
 
 <footer class="foot">
-  <button type="button" id="admin" hidden title="Alcuni sensori (CPU, schede madri) si leggono solo con diritti di amministratore">Riavvia come amministratore</button>
+  <button type="button" id="admin" data-i18n="admin_btn" data-i18n-title="admin_title" hidden></button>
   <span class="warnfan" id="warn-fan" role="alert" hidden></span>
-  <span id="foot-note">Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo.</span>
+  <span id="foot-note"></span>
 </footer>
 <script src="app.js" type="module"></script>
 </body>

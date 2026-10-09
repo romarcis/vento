@@ -16,6 +16,8 @@ const NO_WINDOW: u32 = 0x0800_0000;
 /// Whether closing the window can hide to the tray: some icon must be left to come back with.
 static MAIN_TRAY: AtomicBool = AtomicBool::new(true);
 static TEMP_TRAYS: AtomicUsize = AtomicUsize::new(0);
+/// Tray menu labels ("open", "quit") in the UI language; English until the UI sends them.
+static TRAY_LABELS: Mutex<Option<(String, String)>> = Mutex::new(None);
 
 #[link(name = "shell32")]
 extern "system" {
@@ -40,6 +42,14 @@ fn fan_cmd(state: tauri::State<Sidecar>, line: String) {
 fn set_tray_tooltip(app: AppHandle, text: String) {
     if let Some(t) = app.tray_by_id("main") {
         let _ = t.set_tooltip(Some(text));
+    }
+}
+
+#[tauri::command]
+fn set_tray_labels(app: AppHandle, open: String, quit: String) {
+    *TRAY_LABELS.lock().unwrap() = Some((open, quit));
+    if let (Some(t), Ok(m)) = (app.tray_by_id("main"), tray_menu(&app)) {
+        let _ = t.set_menu(Some(m));
     }
 }
 
@@ -193,10 +203,15 @@ fn quit(app: &AppHandle) {
 }
 
 /// Every Vento tray icon (app and per-fan temperatures) shares the same menu and click behaviour.
+fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let (open, quit) = TRAY_LABELS.lock().unwrap().clone().unwrap_or(("Open Vento".into(), "Exit".into()));
+    let open = MenuItem::with_id(app, "open", open, true, None::<&str>)?;
+    let exit = MenuItem::with_id(app, "quit", quit, true, None::<&str>)?;
+    Menu::with_items(app, &[&open, &exit])
+}
+
 fn tray(app: &AppHandle, b: TrayIconBuilder<Wry>) -> tauri::Result<TrayIcon> {
-    let open = MenuItem::with_id(app, "open", "Apri Vento", true, None::<&str>)?;
-    let exit = MenuItem::with_id(app, "quit", "Esci", true, None::<&str>)?;
-    b.menu(&Menu::with_items(app, &[&open, &exit])?)
+    b.menu(&tray_menu(app)?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
             "open" => show(app),
@@ -218,7 +233,7 @@ fn main() {
     }
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            set_tray_tooltip, set_main_tray, restart_as_admin, is_elevated, running_processes,
+            set_tray_tooltip, set_tray_labels, set_main_tray, restart_as_admin, is_elevated, running_processes,
             autostart_set, autostart_status,
             fan_cmd, set_temp_tray, remove_temp_tray
         ])
