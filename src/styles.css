@@ -67,7 +67,8 @@ ul { list-style: none; }
   font-size: 11px; font-stretch: 75%; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
   color: var(--warn); border: 1px solid var(--warn); border-radius: var(--r); padding: 3px 8px;
 }
-.sim[hidden] { display: none; }
+.sim[data-real="true"] { color: var(--ok); border-color: var(--ok); }
+.sensor[data-state="off"] .val { color: var(--ink-2); }
 .actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .dirty { color: var(--orange-ink); font-size: 13px; }
 
@@ -89,7 +90,7 @@ input[type=checkbox] { accent-color: var(--orange); width: 15px; height: 15px; p
 
 /* sensors */
 .sensors {
-  display: grid; grid-template-columns: repeat(6, 1fr);
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
   border-bottom: 1px solid var(--line);
 }
 .sensor { padding: 10px 16px 12px; border-right: 1px solid var(--line-soft); display: grid; gap: 2px; min-width: 0; }

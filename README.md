@@ -2,13 +2,14 @@
 
 App Windows portable per gestire le ventole del PC: curve ventola/temperatura, sensori live, profili, tray e avvio con Windows. Tauri 2 + UI web.
 
-**Stato:** l'interfaccia funziona con un simulatore (badge "Dati simulati"). Non c'è ancora un backend hardware: leggere i sensori e pilotare le ventole su Windows richiede un driver/libreria (es. LibreHardwareMonitor), da integrare.
+**Stato:** legge i sensori reali (temperature e RPM) tramite LibreHardwareMonitor in un piccolo processo accanto all'app (`sidecar/`). Senza diritti di amministratore CPU e schede madri restano illeggibili: il pulsante "Riavvia come amministratore" li abilita. Sola lettura: le curve si salvano ma non pilotano ancora le ventole. Se il sidecar manca, l'app va in modalità simulata (badge "Dati simulati").
 
 ## Build
 Servono Node, Rust e Visual Studio Build Tools.
 
     npm install
-    npm run build      # -> src-tauri/target/release/vento.exe
+    npm run portable   # -> dist-portable/Vento.exe + dist-portable/sidecar/
 
-L'exe è portable: nessun installer, il profilo WebView2 e le impostazioni stanno in `vento-data/` accanto all'exe. Richiede WebView2 (incluso in Windows 11).
+Il sidecar si compila con il `csc.exe` di .NET Framework già presente in Windows (vedi `sidecar/VentoSensors.cs`; le DLL in `sidecar/bin` sono LibreHardwareMonitorLib e dipendenze, licenza MPL-2.0).
+La cartella `dist-portable` è portable: nessun installer, il profilo WebView2 e le impostazioni stanno in `vento-data/` accanto all'exe. Richiede WebView2 (incluso in Windows 11).
 `npm run web` serve la sola UI nel browser.

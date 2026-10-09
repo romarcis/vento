@@ -7,7 +7,7 @@ const MIN_DUTY = 20; // below this most fans stall
 const TICK_MS = 1000;
 const TRAIL_S = 60;
 
-const SENSORS = [
+const SIM_SENSORS = [
   { id: "cpu", name: "CPU Package", warn: 80, crit: 90, max: 100 },
   { id: "gpu", name: "GPU Core", warn: 78, crit: 88, max: 100 },
   { id: "vrm", name: "VRM", warn: 85, crit: 100, max: 120 },
@@ -15,13 +15,15 @@ const SENSORS = [
   { id: "case", name: "Aria case", warn: 45, crit: 55, max: 70 },
   { id: "wtr", name: "Liquido", warn: 42, crit: 50, max: 60 },
 ];
-const FANS = [
+const SIM_FANS = [
   { id: "cpu", name: "CPU Fan", sensor: "cpu", maxRpm: 2200 },
   { id: "gpu", name: "GPU Fan", sensor: "gpu", maxRpm: 3100 },
   { id: "front", name: "Frontale ×2", sensor: "case", maxRpm: 1500 },
   { id: "rear", name: "Posteriore", sensor: "case", maxRpm: 1500 },
   { id: "pump", name: "Pompa AIO", sensor: "wtr", maxRpm: 3000 },
 ];
+let SENSORS = SIM_SENSORS, FANS = SIM_FANS;
+let real = false; // true once the hardware sidecar delivers data
 const PRESETS = {
   silent: [[30, 20], [50, 25], [65, 40], [78, 65], [90, 100]],
   balanced: [[30, 25], [45, 35], [60, 55], [75, 80], [88, 100]],
@@ -45,17 +47,18 @@ const store = {
   load() { try { return JSON.parse(localStorage.getItem("vento") || "null"); } catch { return null; } },
   save(s) { try { localStorage.setItem("vento", JSON.stringify(s)); } catch {} },
 };
-function defaultProfiles() {
-  const p = {};
+// Fill in curves for any fan a profile does not know yet (new hardware, first run).
+function ensureProfiles() {
   for (const k in PROFILE_NAMES) {
-    p[k] = {};
-    for (const f of FANS) p[k][f.id] = { sensor: f.sensor, points: clone(PRESETS[k]) };
+    state.profiles[k] ??= {};
+    for (const f of FANS) state.profiles[k][f.id] ??= { sensor: f.sensor, points: clone(PRESETS[k]) };
   }
-  return p;
+  state.draft ??= clone(applied());
+  for (const f of FANS) state.draft[f.id] ??= clone(applied()[f.id]);
 }
 const saved = store.load();
 const state = {
-  profiles: saved?.profiles ?? defaultProfiles(),
+  profiles: saved?.profiles ?? {},
   active: saved?.active ?? "balanced",
   fan: FANS[0].id,
   sel: 0,
@@ -63,7 +66,6 @@ const state = {
   autostart: saved?.autostart ?? false,
 };
 const applied = () => state.profiles[state.active];
-state.draft = clone(applied());
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
 const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart });
@@ -90,8 +92,13 @@ function unsafe(points) {
 const sim = {
   load: 0.35, loadT: 0.35, t: {}, rpm: {}, hist: {}, tick: 0, lost: null,
 };
-for (const s of SENSORS) sim.t[s.id] = 38; for (const f of FANS) sim.rpm[f.id] = f.maxRpm * 0.3; for (const s of SENSORS) sim.hist[s.id] = [];
+sim.duty = {};
+function initStores() {
+  for (const s of SENSORS) { sim.t[s.id] ??= 38; sim.hist[s.id] ??= []; }
+  for (const f of FANS) sim.rpm[f.id] ??= f.maxRpm * 0.3;
+}
 function simStep() {
+  if (real) return;
   sim.tick++;
   if (sim.tick % 12 === 1) sim.loadT = Math.random() < 0.3 ? 0.9 : 0.15 + Math.random() * 0.5;
   sim.load += (sim.loadT - sim.load) * 0.12;
@@ -148,7 +155,7 @@ $("revert").onclick = () => { state.draft = clone(applied()); state.sel = 0; ren
 /* ---------- sensors strip ---------- */
 function buildSensors() {
   const box = $("sensors"); box.textContent = "";
-  for (const s of SENSORS) {
+  for (const s of SENSORS.slice(0, 8)) {
     const d = document.createElement("div"); d.className = "sensor"; d.id = "s-" + s.id;
     d.innerHTML = `<span class="name"></span><span class="val"><span class="v">--</span><small>°C</small></span><span class="scale"><i></i></span><span class="tag"></span>`;
     d.querySelector(".name").textContent = s.name;
@@ -156,8 +163,12 @@ function buildSensors() {
   }
 }
 function updateSensors() {
-  for (const s of SENSORS) {
+  for (const s of SENSORS.slice(0, 8)) {
     const v = sim.t[s.id], d = $("s-" + s.id);
+    if (!(v > 0)) { // a driver-gated sensor reads 0 without admin rights
+      d.dataset.state = "off"; d.querySelector(".v").textContent = "--";
+      d.querySelector("i").style.width = "0"; d.querySelector(".tag").textContent = "Serve admin"; continue;
+    }
     const st = v >= s.crit ? "crit" : v >= s.warn ? "warn" : "ok";
     d.dataset.state = st;
     d.querySelector(".v").textContent = v.toFixed(0);
@@ -184,8 +195,8 @@ function updateFans() {
     b.dataset.state = isDirty(f.id) ? "dirty" : "";
     b.querySelector(".n").textContent = f.name;
     b.querySelector(".r").textContent = Math.round(sim.rpm[f.id] / 10) * 10;
-    b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor).name;
-    b.querySelector(".duty").textContent = Math.round(dutyAt(applied()[f.id].points, sim.t[applied()[f.id].sensor])) + "%";
+    b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor)?.name ?? "Nessun sensore";
+    b.querySelector(".duty").textContent = Math.round(real ? (sim.duty[f.id] ?? (sim.rpm[f.id] / f.maxRpm) * 100) : dutyAt(applied()[f.id].points, sim.t[applied()[f.id].sensor])) + "%";
   }
 }
 
@@ -229,6 +240,7 @@ function drawChart() {
   updateChart();
 }
 function updateChart() {
+  if (!live.draft) return;
   const f = FANS.find((x) => x.id === state.fan), cfg = state.draft[f.id], ap = applied()[f.id];
   const pts = cfg.points;
   const ext = (p) => [[T_MIN, p[0][1]], ...p, [T_MAX, p[p.length - 1][1]]];
@@ -254,8 +266,10 @@ function updateChart() {
   markSel();
   // live marker
   const temp = sim.t[ap.sensor], duty = dutyAt(ap.points, temp);
-  const hist = sim.hist[ap.sensor];
-  if (hist.length) {
+  const hist = sim.hist[ap.sensor] ?? [];
+  const valid = temp > 0;
+  for (const n of [live.cross, live.op, live.opl, live.band]) n.style.display = valid ? "" : "none";
+  if (valid && hist.length) {
     const lo = Math.min(...hist), hi = Math.max(...hist);
     live.band.setAttribute("x", X(clamp(lo, T_MIN, T_MAX))); live.band.setAttribute("width", Math.max(2, X(clamp(hi, T_MIN, T_MAX)) - X(clamp(lo, T_MIN, T_MAX))));
   }
@@ -327,6 +341,8 @@ function syncPointFields() {
 }
 function renderEditor() {
   const f = FANS.find((x) => x.id === state.fan);
+  if (!f) { $("fan-title").textContent = "Nessuna ventola rilevata"; chart.textContent = ""; return; }
+  $("sensor-select").innerHTML = SENSORS.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
   $("fan-title").textContent = f.name;
   $("sensor-select").value = state.draft[f.id].sensor;
   const pts = state.draft[f.id].points;
@@ -335,14 +351,14 @@ function renderEditor() {
   syncPointFields();
   drawChart();
 }
-function renderAll() { renderProfiles(); renderActions(); updateSensors(); updateFans(); renderEditor(); }
+function renderAll() { if (!FANS.some((f) => f.id === state.fan)) state.fan = FANS[0]?.id; renderProfiles(); renderActions(); updateSensors(); updateFans(); renderEditor(); }
 
 /* ---------- tray / autostart (Tauri, optional) ---------- */
 const tauri = window.__TAURI__;
 const invoke = tauri?.core?.invoke;
 function pushTray() {
   if (!invoke) return;
-  const hot = ["cpu", "gpu"].map((id) => `${id.toUpperCase()} ${sim.t[id].toFixed(0)}°C`).join(" · ");
+  const hot = SENSORS.filter((s) => sim.t[s.id] > 0).slice(0, 2).map((s) => `${s.name.split(" ")[0]} ${sim.t[s.id].toFixed(0)}°C`).join(" · ");
   const rpm = FANS.slice(0, 3).map((f) => `${f.name.split(" ")[0]} ${Math.round(sim.rpm[f.id])}`).join(" · ");
   invoke("set_tray_tooltip", { text: `Vento · ${PROFILE_NAMES[state.active]}\n${hot}\n${rpm} RPM` }).catch(() => {});
 }
@@ -353,13 +369,50 @@ $("autostart").onchange = async (e) => {
 };
 
 /* ---------- boot ---------- */
+function setSource() {
+  const b = $("sim");
+  b.textContent = real ? "Sensori reali · sola lettura" : "Dati simulati";
+  b.dataset.real = String(real);
+  $("foot-note").textContent = real
+    ? "Le curve sono salvate ma ancora non pilotano le ventole: Vento per ora legge soltanto."
+    : "Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo.";
+}
+// Real hardware (Tauri sidecar). First message defines the sensor/fan lists; later ones update values.
+const guessRpmMax = (rpm) => Math.max(1000, Math.ceil((rpm * 1.4) / 100) * 100);
+const shortHw = (hw) => hw.replace(/^(AMD|Intel\(R\)|Intel|NVIDIA)\s+/i, "").replace(/^(Radeon RX|Radeon|GeForce RTX|GeForce GTX|Ryzen \d|Core i\d|Core Ultra \d)\s*/i, "");
+const limits = (id, hw) => /nvme|hdd|ssd|storage/i.test(id + hw) ? { warn: 65, crit: 75, max: 90 } : /vrm|chipset|motherboard/i.test(id + hw) ? { warn: 85, crit: 100, max: 120 } : { warn: 80, crit: 90, max: 100 };
+function onHardware(list) {
+  const temps = list.filter((x) => x.type === "temp"), fans = list.filter((x) => x.type === "fan" && x.value >= 0);
+  const known = new Set(SENSORS.map((s) => s.id) );
+  if (!real || temps.some((x) => !known.has(x.id)) || fans.some((x) => !FANS.some((f) => f.id === x.id))) {
+    SENSORS = temps.map((x) => ({ id: x.id, name: `${shortHw(x.hw)} ${x.name}`, ...limits(x.id, x.hw) }));
+    const prefix = (id) => id.split("/").slice(0, 3).join("/");
+    FANS = fans.map((x) => {
+      const same = SENSORS.find((s) => prefix(s.id) === prefix(x.id)) ?? SENSORS[0];
+      return { id: x.id, name: `${x.hw.split(" ").slice(-2).join(" ")} ${x.name}`, sensor: same?.id, maxRpm: guessRpmMax(x.value) };
+    });
+    real = true; sim.t = {}; sim.hist = {}; sim.rpm = {}; initStores(); ensureProfiles(); setSource();
+    state.fan = FANS[0]?.id; buildSensors(); buildFans(); renderAll();
+  }
+  for (const x of list) {
+    if (x.type === "temp") { sim.t[x.id] = x.value; const h = sim.hist[x.id]; if (h) { h.push(x.value); if (h.length > TRAIL_S) h.shift(); } }
+    else if (x.type === "fan") { sim.rpm[x.id] = x.value; const f = FANS.find((q) => q.id === x.id); if (f && x.value > f.maxRpm) f.maxRpm = guessRpmMax(x.value); }
+    else if (x.type === "ctrl") { const fan = list.find((q) => q.type === "fan" && q.hw === x.hw && q.name === x.name); if (fan) sim.duty[fan.id] = x.value; }
+  }
+}
+window.__TAURI__?.event?.listen("sensors", (e) => { try { onHardware(JSON.parse(e.payload).sensors); } catch {} });
+
+initStores(); ensureProfiles(); setSource();
 buildSensors(); buildFans(); buildEditorControls(); renderAll();
 const nowEl = $("now");
 setInterval(() => {
   simStep(); updateSensors(); updateFans(); updateChart();
-  const ap = applied()[state.fan], t = sim.t[ap.sensor];
-  nowEl.innerHTML = `Ora: <b>${t.toFixed(1)} °C</b> → <b>${dutyAt(ap.points, t).toFixed(0)}%</b> · ${Math.round(sim.rpm[state.fan])} RPM`;
+  const ap = applied()[state.fan]; if (!ap) { nowEl.textContent = ""; return; }
+  const t = sim.t[ap.sensor];
+  nowEl.innerHTML = t > 0 ? `Ora: <b>${t.toFixed(1)} °C</b> → <b>${dutyAt(ap.points, t).toFixed(0)}%</b> · ${Math.round(sim.rpm[state.fan])} RPM` : "Sensore non leggibile (servono diritti di amministratore)";
   pushTray();
+  $("admin").hidden = !(real && SENSORS.slice(0, 8).some((s) => !(sim.t[s.id] > 0)));
 }, TICK_MS);
+$("admin").onclick = () => invoke?.("restart_as_admin");
 for (let i = 0; i < 20; i++) simStep();
 new ResizeObserver(() => drawChart()).observe(chart.parentElement);

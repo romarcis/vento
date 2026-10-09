@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build --no-bundle",
+    "portable": "npm run build && node scripts/portable.mjs",
     "web": "npx --yes serve src -l 5173"
   },
   "devDependencies": {
