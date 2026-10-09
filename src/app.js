@@ -735,6 +735,7 @@ initStores(); ensureProfiles(); setSource();
 let hideAppIconWhenReady = !state.trayIcon && state.trayFans.length > 0;
 if (!hideAppIconWhenReady) invoke?.("set_main_tray", { visible: state.trayIcon });
 else setTimeout(() => { if (hideAppIconWhenReady) { hideAppIconWhenReady = false; invoke?.("set_main_tray", { visible: false }); } }, 8000);
+invoke?.("startup_hide");
 elevateIfNeeded().then(warnConflicts);
 buildFans(); buildEditorControls(); renderAll();
 const nowEl = $("now");

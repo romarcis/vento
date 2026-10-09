@@ -129,6 +129,10 @@ fn task_exists() -> bool {
 /// Creating or removing it needs admin once.
 #[tauri::command]
 async fn autostart_set(enable: bool) -> bool {
+    set_autostart(enable)
+}
+
+fn set_autostart(enable: bool) -> bool {
     let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default().replace('\'', "''");
     // The old Run-key autostart (previous Vento versions) is dropped in both cases.
     let cleanup = "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'Vento' -ErrorAction SilentlyContinue";
@@ -150,7 +154,24 @@ Unregister-ScheduledTask -TaskName '{TASK}' -Confirm:$false -ErrorAction Silentl
 
 #[tauri::command]
 async fn autostart_status() -> bool {
-    task_exists()
+    task_exists() || legacy_autostart()
+}
+
+/// Versions before the scheduled task started Vento from the Run key, without admin rights
+/// (so "run as administrator" asked UAC at every sign-in). Elevated, we move it to the task.
+fn legacy_autostart() -> bool {
+    Command::new("reg").creation_flags(NO_WINDOW)
+        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "Vento"])
+        .stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// The window is created hidden, but a launch through UAC or another process can still surface
+/// it. Once the UI is up it hides it again, as long as a tray icon can bring it back.
+#[tauri::command]
+fn startup_hide(app: AppHandle) {
+    if MAIN_TRAY.load(Ordering::SeqCst) || TEMP_TRAYS.load(Ordering::SeqCst) > 0 {
+        if let Some(w) = app.get_webview_window("main") { let _ = w.hide(); }
+    }
 }
 
 /// Elevate: through the logon task when it exists (no prompt), otherwise one UAC prompt.
@@ -291,7 +312,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             set_tray_tooltip, set_tray_labels, set_main_tray, restart_as_admin, is_elevated, running_processes,
-            autostart_set, autostart_status,
+            autostart_set, autostart_status, startup_hide,
             fan_cmd, set_temp_tray, remove_temp_tray
         ])
         .setup(|app| {
@@ -299,6 +320,9 @@ fn main() {
             tray(app.handle(), TrayIconBuilder::with_id("main").icon(tauri::image::Image::new_owned(include_bytes!("../icons/tray.rgba").to_vec(), 64, 64)) /* 3 wind lines, transparent; source: icons/tray.png */.tooltip("Vento"))?;
             spawn_sensors(app.handle().clone());
             listen_for_show(app.handle().clone());
+            if is_elevated() && legacy_autostart() {
+                std::thread::spawn(|| set_autostart(true));
+            }
             Ok(())
         })
         .on_window_event(|w, e| {
