@@ -31,6 +31,35 @@ fn fan_cmd(state: tauri::State<Sidecar>, line: String) {
     }
 }
 
+/// One extra tray icon per fan: the UI draws the temperature (RGBA, size x size) and we show it.
+#[tauri::command]
+fn set_temp_tray(app: AppHandle, id: String, rgba: Vec<u8>, size: u32, tooltip: String) -> Result<(), String> {
+    if rgba.len() != (size * size * 4) as usize { return Err("bad icon size".into()); }
+    let img = tauri::image::Image::new_owned(rgba, size, size);
+    let tid = format!("temp-{id}");
+    if let Some(t) = app.tray_by_id(&tid) {
+        t.set_icon(Some(img)).map_err(|e| e.to_string())?;
+        t.set_tooltip(Some(tooltip)).map_err(|e| e.to_string())?;
+    } else {
+        TrayIconBuilder::with_id(tid)
+            .icon(img)
+            .tooltip(tooltip)
+            .on_tray_icon_event(|t, e| {
+                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
+                    show(t.app_handle());
+                }
+            })
+            .build(&app)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_temp_tray(app: AppHandle, id: String) {
+    let _ = app.remove_tray_by_id(&format!("temp-{id}"));
+}
+
 #[tauri::command]
 fn restart_as_admin(app: AppHandle) {
     if let Ok(exe) = std::env::current_exe() {
@@ -84,7 +113,7 @@ fn main() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
-        .invoke_handler(tauri::generate_handler![set_tray_tooltip, restart_as_admin, fan_cmd])
+        .invoke_handler(tauri::generate_handler![set_tray_tooltip, restart_as_admin, fan_cmd, set_temp_tray, remove_temp_tray])
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Apri Vento", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Esci", true, None::<&str>)?;

@@ -70,11 +70,16 @@ const state = {
   fanPresets: saved?.fanPresets ?? {}, // fan id -> [{ name, points }]
   seenFans: new Set(saved?.seenFans ?? []), // headers that have ever spun
   fanVisible: saved?.fanVisible ?? {},       // fan id -> shown in the rail (user's choice)
+  fanColors: saved?.fanColors ?? {},         // fan id -> "#rrggbb"
+  trayFans: saved?.trayFans ?? [],           // fan ids with their own temperature icon in the tray
 };
 const applied = () => state.profiles[state.active];
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
-const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible });
+const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible, fanColors: state.fanColors, trayFans: state.trayFans });
+const SWATCHES = ["#ff6a1a", "#f2c23a", "#86c77e", "#3fc1c9", "#5b8cff", "#b07cff", "#ff5fa2", "#ece7dc"];
+const fanColor = (f) => state.fanColors[f.id] || SWATCHES[Math.max(0, FANS.indexOf(f)) % SWATCHES.length];
+const fanTemp = (f) => sim.t[applied()[f.id]?.sensor];
 // Until the user picks, show fans that have spun at least once (a Super I/O chip lists every header).
 const isVisible = (f) => !real || (state.fanVisible[f.id] ?? (state.seenFans.has(f.id) || f.id.includes("/gpu")));
 const shownFans = () => FANS.filter(isVisible);
@@ -179,7 +184,7 @@ function buildFans() {
   for (const f of shownFans()) {
     const li = document.createElement("li");
     const b = document.createElement("button"); b.type = "button"; b.className = "fan"; b.id = "f-" + f.id;
-    b.innerHTML = `<span class="n"></span><span class="rpm"><span class="r">0</span><small>RPM</small></span><span class="meta"></span><span class="duty"></span>`;
+    b.innerHTML = `<span class="n"><i class="chip"></i><span class="nm"></span></span><span class="rpm"><span class="r">--</span><small>°C</small></span><span class="meta"></span><span class="duty"></span>`;
     b.onclick = () => { state.fan = f.id; state.sel = 0; renderAll(); };
     b.oncontextmenu = (e) => { e.preventDefault(); openFanMenu(f, e); };
     li.appendChild(b); ul.appendChild(li);
@@ -214,6 +219,20 @@ function openFanMenu(f, e) {
   item.disabled = !canStop(f) && !off;
   $("fan-menu-note").textContent = canStop(f) ? (off ? "" : "Ferma la ventola per riconoscerla") : "Questa ventola non si può fermare da Vento";
   item.onclick = () => { closeFanMenu(); setStopped(f, !off); };
+  const inTray = state.trayFans.includes(f.id);
+  $("fan-menu-tray").textContent = inTray ? "Rimuovi temperatura dalla tray" : "Mostra temperatura nella tray";
+  $("fan-menu-tray").disabled = !invoke;
+  $("fan-menu-tray").onclick = () => { closeFanMenu(); setTray(f, !inTray); };
+  const sw = $("fan-menu-colors"); sw.textContent = "";
+  for (const c of SWATCHES) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "swatch"; b.style.background = c;
+    b.setAttribute("aria-label", "Colore " + c); b.setAttribute("aria-pressed", String(c === fanColor(f)));
+    b.onclick = () => { setColor(f, c); closeFanMenu(); };
+    sw.appendChild(b);
+  }
+  $("fan-menu-custom").value = fanColor(f);
+  $("fan-menu-custom").oninput = (e) => setColor(f, e.target.value);
   // Mouse: at the pointer. Keyboard (context-menu key): under the fan's row.
   const r = e.currentTarget.getBoundingClientRect();
   const x = e.clientX || r.left + 16, y = e.clientY || r.bottom;
@@ -225,7 +244,38 @@ function openFanMenu(f, e) {
 function closeFanMenu() { $("fan-menu").hidden = true; }
 addEventListener("pointerdown", (e) => { if (!$("fan-menu").contains(e.target)) closeFanMenu(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape") closeFanMenu(); });
-addEventListener("blur", closeFanMenu);
+function setColor(f, c) { state.fanColors[f.id] = c; persist(); updateFans(); trayTick(true); }
+
+/* ---------- per-fan temperature icons in the tray ---------- */
+const trayShown = {}; // fan id -> last drawn "temp|color"
+function setTray(f, on) {
+  state.trayFans = state.trayFans.filter((id) => id !== f.id);
+  if (on) state.trayFans.push(f.id); else { invoke?.("remove_temp_tray", { id: f.id }); delete trayShown[f.id]; }
+  persist(); trayTick(true);
+}
+// The number itself is the icon: drawn on a 32px canvas in the fan's colour, outlined so it reads on light and dark taskbars.
+const trayCanvas = document.createElement("canvas"); trayCanvas.width = trayCanvas.height = 32;
+function drawTemp(text, color) {
+  const g = trayCanvas.getContext("2d");
+  g.clearRect(0, 0, 32, 32);
+  g.font = `800 ${text.length > 2 ? 17 : 24}px Archivo`;
+  g.fontStretch = "condensed";
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.lineJoin = "round"; g.lineWidth = 4; g.strokeStyle = "rgba(20,19,17,.9)";
+  g.strokeText(text, 16, 17); g.fillStyle = color; g.fillText(text, 16, 17);
+  return Array.from(g.getImageData(0, 0, 32, 32).data);
+}
+function trayTick(force = false) {
+  if (!invoke) return;
+  for (const id of state.trayFans) {
+    const f = FANS.find((x) => x.id === id); if (!f) continue; // fan not detected (yet)
+    const t = fanTemp(f), text = t > 0 ? t.toFixed(0) : "--", key = text + "|" + fanColor(f);
+    if (!force && trayShown[id] === key) continue;
+    trayShown[id] = key;
+    invoke("set_temp_tray", { id, rgba: drawTemp(text, fanColor(f)), size: 32, tooltip: `${fanName(f)}: ${text} °C` }).catch(() => {});
+  }
+}
+
 function setStopped(f, on) {
   if (on) stopped.add(f.id); else stopped.delete(f.id);
   safety = "";
@@ -238,10 +288,12 @@ function updateFans() {
     const b = $("f-" + f.id); if (!b) continue;
     b.setAttribute("aria-current", String(f.id === state.fan));
     b.dataset.state = stopped.has(f.id) ? "off" : isDirty(f.id) ? "dirty" : "";
-    b.querySelector(".n").textContent = fanName(f);
-    b.querySelector(".r").textContent = Math.round(sim.rpm[f.id] / 10) * 10;
+    b.querySelector(".nm").textContent = fanName(f);
+    b.querySelector(".chip").style.background = fanColor(f);
+    const t = fanTemp(f);
+    b.querySelector(".r").textContent = t > 0 ? t.toFixed(0) : "--";
     b.querySelector(".meta").textContent = SENSORS.find((s) => s.id === applied()[f.id].sensor)?.name ?? "Nessun sensore";
-    b.querySelector(".duty").textContent = stopped.has(f.id) ? "Spenta" : Math.round(real ? (sim.duty[f.id] ?? (sim.rpm[f.id] / f.maxRpm) * 100) : dutyAt(applied()[f.id].points, sim.t[applied()[f.id].sensor])) + "%";
+    b.querySelector(".duty").textContent = stopped.has(f.id) ? "Spenta" : `${Math.round((sim.rpm[f.id] ?? 0) / 10) * 10} RPM`;
   }
 }
 
@@ -584,7 +636,7 @@ setInterval(() => {
   const bad = FANS.filter((f) => noResponse.has(f.id));
   $("warn-fan").hidden = !bad.length && !safety;
   $("warn-fan").textContent = safety ? safety : bad.length ? `${bad.map(fanName).join(", ")} non segue Vento: chiudi altri programmi che gestiscono le ventole (Fan Control, tuning ventole di Radeon Software) o prova "Riavvia come amministratore".` : "";
-  pushTray();
+  pushTray(); trayTick();
   $("admin").hidden = !(real && SENSORS.slice(0, 8).some((s) => !(sim.t[s.id] > 0)));
 }, TICK_MS);
 $("admin").onclick = () => invoke?.("restart_as_admin");

@@ -199,3 +199,14 @@ button.quiet:hover:not(:disabled) { background: var(--raise); border-color: var(
 .menu p { margin: 2px 10px 6px; font-size: 12px; color: var(--ink-2); }
 .menu p:empty { display: none; }
 .fan[data-state="off"] .rpm, .fan[data-state="off"] .duty { color: var(--warn); }
+
+.fan .n { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fan .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.menu-colors { border-top: 1px solid var(--line); margin-top: 4px; padding: 8px 10px 6px; display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: center; }
+.menu-colors > span { grid-column: 1 / -1; font-size: 11px; font-stretch: 75%; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; color: var(--ink-2); }
+.swatches { display: flex; gap: 6px; }
+.menu .swatch { width: 20px; height: 20px; padding: 0; border-radius: 3px; border: 1px solid rgb(0 0 0 / .35); }
+.menu .swatch[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+.menu .swatch:hover:not(:disabled), .menu .swatch:focus-visible { outline: 2px solid var(--ink-2); outline-offset: 2px; background-clip: padding-box; }
+.custom-color input { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line); background: transparent; cursor: pointer; }
