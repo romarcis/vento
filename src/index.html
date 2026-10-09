@@ -10,11 +10,9 @@
 <header class="bar">
   <h1 class="mark">vento</h1>
   <span class="sim" id="sim" title="Nessun backend hardware collegato: i valori sono generati da un simulatore">Dati simulati</span>
-  <div class="actions">
-    <span class="dirty" id="dirty" role="status"></span>
-    <button type="button" id="revert" disabled>Ripristina</button>
-    <button type="button" id="apply" class="primary" disabled>Applica</button>
-  </div>
+  <button type="button" class="gear" id="settings-btn" aria-label="Impostazioni" aria-pressed="false" title="Impostazioni">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+  </button>
 </header>
 
 <section class="sensors" id="sensors" aria-label="Sensori"></section>
@@ -54,6 +52,12 @@
       </form>
     </div>
 
+    <div class="chart-bar">
+      <span class="dirty" id="dirty" role="status"></span>
+      <button type="button" id="revert" disabled>Ripristina</button>
+      <button type="button" id="apply" class="primary" disabled>Applica</button>
+    </div>
+
     <div class="chart-wrap">
       <svg id="chart" role="application" aria-label="Curva ventola: temperatura contro velocità. Frecce per spostare il punto selezionato." tabindex="-1"></svg>
       <p class="warn" id="warn" role="alert" hidden></p>
@@ -91,9 +95,35 @@
   </div>
 </div>
 
+<section class="settings" id="settings" aria-labelledby="settings-title" hidden>
+  <div class="settings-head">
+    <button type="button" id="settings-back">Torna alle ventole</button>
+    <h2 id="settings-title">Impostazioni</h2>
+  </div>
+  <ul class="setting-list">
+    <li><label class="setting"><input type="checkbox" id="autostart">
+      <span><b>Avvia con Windows</b><small>Vento parte all'accesso e applica le curve in background.</small></span></label></li>
+    <li><label class="setting"><input type="checkbox" id="run-admin">
+      <span><b>Avvia come amministratore</b><small>Serve per leggere la CPU e pilotare le ventole della scheda madre. Windows chiederà conferma a ogni avvio.</small></span></label></li>
+    <li><label class="setting"><input type="checkbox" id="tray-icon">
+      <span><b>Mostra l'icona dell'app nella tray</b><small>Senza icone nella tray, chiudere la finestra chiude Vento e le ventole tornano in automatico.</small></span></label></li>
+    <li><label class="setting"><input type="checkbox" id="warn-start">
+      <span><b>Avvisa all'avvio dei programmi in conflitto</b><small>Fan Control, Afterburner e simili si contendono le ventole con Vento.</small></span></label></li>
+  </ul>
+</section>
+
+<dialog class="conflicts" id="conflicts" aria-labelledby="conflicts-title">
+  <h2 id="conflicts-title">Chiudi gli altri programmi per le ventole</h2>
+  <p>Vento pilota le ventole in continuazione. Se un altro programma fa lo stesso, i due si sovrascrivono a vicenda e le ventole non seguono la curva.</p>
+  <ul id="conflicts-list"></ul>
+  <p class="note">Disattiva anche il tuning delle ventole in Radeon Software o nell'utility della scheda madre, se lo usi.</p>
+  <form method="dialog" class="conflicts-actions">
+    <label class="check"><input type="checkbox" id="conflicts-hide"> Non mostrare più</label>
+    <button type="submit" class="primary" id="conflicts-ok">Ho capito</button>
+  </form>
+</dialog>
+
 <footer class="foot">
-  <label class="check"><input type="checkbox" id="control"> Pilota le ventole</label>
-  <label class="check"><input type="checkbox" id="autostart"> Avvia con Windows</label>
   <button type="button" id="admin" hidden title="Alcuni sensori (CPU, schede madri) si leggono solo con diritti di amministratore">Riavvia come amministratore</button>
   <span class="warnfan" id="warn-fan" role="alert" hidden></span>
   <span id="foot-note">Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo.</span>

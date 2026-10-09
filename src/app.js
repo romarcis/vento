@@ -65,7 +65,10 @@ const state = {
   sel: 0,
   draft: null, // working copy of the active profile
   autostart: saved?.autostart ?? false,
-  control: saved?.control ?? false, // opt-in: drive the real fans
+  control: true, // Vento always drives the fans it shows
+  runAsAdmin: saved?.runAsAdmin ?? false,
+  trayIcon: saved?.trayIcon ?? true,
+  warnAtStart: saved?.warnAtStart ?? true,
   fanNames: saved?.fanNames ?? {},     // fan id -> user's name
   fanPresets: saved?.fanPresets ?? {}, // fan id -> [{ name, points }]
   seenFans: new Set(saved?.seenFans ?? []), // headers that have ever spun
@@ -76,7 +79,7 @@ const state = {
 const applied = () => state.profiles[state.active];
 const isDirty = (id) => JSON.stringify(state.draft[id]) !== JSON.stringify(applied()[id]);
 const anyDirty = () => FANS.some((f) => isDirty(f.id));
-const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, control: state.control, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible, fanColors: state.fanColors, trayFans: state.trayFans });
+const persist = () => store.save({ profiles: state.profiles, active: state.active, autostart: state.autostart, runAsAdmin: state.runAsAdmin, trayIcon: state.trayIcon, warnAtStart: state.warnAtStart, seenFans: [...state.seenFans], fanNames: state.fanNames, fanPresets: state.fanPresets, fanVisible: state.fanVisible, fanColors: state.fanColors, trayFans: state.trayFans });
 const SWATCHES = ["#ff6a1a", "#f2c23a", "#86c77e", "#3fc1c9", "#5b8cff", "#b07cff", "#ff5fa2", "#ece7dc"];
 const fanColor = (f) => state.fanColors[f.id] || SWATCHES[Math.max(0, FANS.indexOf(f)) % SWATCHES.length];
 const fanTemp = (f) => sim.t[applied()[f.id]?.sensor];
@@ -251,18 +254,18 @@ const trayShown = {}; // fan id -> last drawn "temp|color"
 function setTray(f, on) {
   state.trayFans = state.trayFans.filter((id) => id !== f.id);
   if (on) state.trayFans.push(f.id); else { invoke?.("remove_temp_tray", { id: f.id }); delete trayShown[f.id]; }
-  persist(); trayTick(true);
+  persist(); trayTick(true); setSource();
 }
 // The number itself is the icon: drawn on a 32px canvas in the fan's colour, outlined so it reads on light and dark taskbars.
 const trayCanvas = document.createElement("canvas"); trayCanvas.width = trayCanvas.height = 32;
 function drawTemp(text, color) {
   const g = trayCanvas.getContext("2d");
   g.clearRect(0, 0, 32, 32);
-  g.font = `800 ${text.length > 2 ? 17 : 24}px Archivo`;
+  g.font = `800 ${text.length > 2 ? 20 : 28}px Archivo`;
   g.fontStretch = "condensed";
   g.textAlign = "center"; g.textBaseline = "middle";
   g.lineJoin = "round"; g.lineWidth = 4; g.strokeStyle = "rgba(20,19,17,.9)";
-  g.strokeText(text, 16, 17); g.fillStyle = color; g.fillText(text, 16, 17);
+  g.strokeText(text, 16, 17, 31); g.fillStyle = color; g.fillText(text, 16, 17, 31);
   return Array.from(g.getImageData(0, 0, 32, 32).data);
 }
 function trayTick(force = false) {
@@ -510,15 +513,57 @@ function pushTray() {
   const rpm = FANS.slice(0, 3).map((f) => `${fanName(f)} ${Math.round(sim.rpm[f.id])}`).join(" · ");
   invoke("set_tray_tooltip", { text: `Vento\n${hot}\n${rpm} RPM`.slice(0, 127) }).catch(() => {});
 }
-$("control").checked = state.control;
-$("control").onchange = (e) => {
-  state.control = e.target.checked; persist(); setSource(); controlTick();
-  if (!state.control) { send("defaultall"); hw.amdKey = null; }
-};
 $("autostart").checked = state.autostart;
 $("autostart").onchange = async (e) => {
   state.autostart = e.target.checked; persist();
   try { await invoke?.("plugin:autostart|" + (state.autostart ? "enable" : "disable")); } catch {}
+};
+
+/* ---------- settings view ---------- */
+function showSettings(on) {
+  document.body.dataset.view = on ? "settings" : "";
+  $("settings").hidden = !on;
+  $("settings-btn").setAttribute("aria-pressed", String(on));
+  (on ? $("settings-back") : $("settings-btn")).focus();
+}
+$("settings-btn").onclick = () => showSettings($("settings").hidden);
+$("settings-back").onclick = () => showSettings(false);
+$("run-admin").checked = state.runAsAdmin;
+$("run-admin").onchange = (e) => { state.runAsAdmin = e.target.checked; persist(); if (state.runAsAdmin) elevateIfNeeded(); };
+$("tray-icon").checked = state.trayIcon;
+$("tray-icon").onchange = (e) => { state.trayIcon = e.target.checked; persist(); invoke?.("set_main_tray", { visible: state.trayIcon }); setSource(); };
+$("warn-start").checked = state.warnAtStart;
+$("warn-start").onchange = (e) => { state.warnAtStart = e.target.checked; persist(); };
+async function elevateIfNeeded() {
+  if (!invoke || !state.runAsAdmin) return;
+  try { if (!(await invoke("is_elevated"))) await invoke("restart_as_admin"); } catch {}
+}
+
+/* ---------- start-up warning: other fan tools fight over the same fans ---------- */
+const CONFLICTS = [
+  ["Fan Control", "fancontrol.exe"], ["MSI Afterburner", "msiafterburner.exe"], ["SpeedFan", "speedfan.exe"],
+  ["Argus Monitor", "argusmonitor.exe"], ["HWiNFO", "hwinfo64.exe"], ["Armoury Crate", "armourycrate.exe"],
+  ["AI Suite 3", "aisuite3.exe"], ["MSI Center", "msi.centralserver.exe"], ["Gigabyte Control Center", "gcc.exe"],
+  ["NZXT CAM", "nzxt cam.exe"], ["Corsair iCUE", "icue.exe"], ["Libre Hardware Monitor", "librehardwaremonitor.exe"],
+];
+async function warnConflicts() {
+  if (!state.warnAtStart) return;
+  let running = [];
+  try { running = (await invoke?.("running_processes", { names: CONFLICTS.map((c) => c[1]) })) ?? []; } catch {}
+  const ul = $("conflicts-list"); ul.textContent = "";
+  for (const [name, exe] of [...CONFLICTS].sort((a, b) => running.includes(b[1]) - running.includes(a[1]))) {
+    const li = document.createElement("li");
+    const on = running.includes(exe);
+    li.className = on ? "running" : "";
+    li.append(name);
+    if (on) { const s = document.createElement("small"); s.textContent = "In esecuzione"; li.append(s); }
+    ul.appendChild(li);
+  }
+  $("conflicts-hide").checked = false;
+  $("conflicts").showModal();
+}
+$("conflicts").onclose = () => {
+  if ($("conflicts-hide").checked) { state.warnAtStart = false; $("warn-start").checked = false; persist(); }
 };
 
 /* ---------- boot ---------- */
@@ -583,9 +628,9 @@ function controlTick() {
 function setSource() {
   const b = $("sim");
   b.dataset.real = String(real);
-  $("foot-note").textContent = !real ? "Chiudendo la finestra Vento resta nella tray e continua ad applicare il profilo."
-    : state.control ? "Controllo attivo: la ventola segue la curva applicata. Chiudendo la finestra Vento resta nella tray."
-    : "Controllo spento: le ventole restano in automatico. Attivalo per farle seguire le curve.";
+  $("foot-note").textContent = state.trayIcon || state.trayFans.length
+    ? "Chiudendo la finestra Vento resta nella tray e continua ad applicare le curve."
+    : "Chiudendo la finestra Vento si chiude e le ventole tornano in automatico.";
   b.hidden = real; // the badge only warns that values are simulated
 }
 // Real hardware (Tauri sidecar). First message defines the sensor/fan lists; later ones update values.
@@ -625,6 +670,8 @@ window.__TAURI__?.event?.listen("sensors", (e) => {
 });
 
 initStores(); ensureProfiles(); setSource();
+invoke?.("set_main_tray", { visible: state.trayIcon });
+elevateIfNeeded().then(warnConflicts);
 buildSensors(); buildFans(); buildEditorControls(); renderAll();
 const nowEl = $("now");
 setInterval(() => {
