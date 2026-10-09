@@ -541,7 +541,8 @@ const guessRpmMax = (rpm) => Math.max(1000, Math.ceil((rpm * 1.4) / 100) * 100);
 const shortHw = (hw) => hw.replace(/^(AMD|Intel\(R\)|Intel|NVIDIA)\s+/i, "").replace(/^(Radeon RX|Radeon|GeForce RTX|GeForce GTX|Ryzen \d|Core i\d|Core Ultra \d)\s*/i, "");
 const limits = (id, hw) => /nvme|hdd|ssd|storage/i.test(id + hw) ? { warn: 65, crit: 75, max: 90 } : /vrm|chipset|motherboard/i.test(id + hw) ? { warn: 85, crit: 100, max: 120 } : { warn: 80, crit: 90, max: 100 };
 function onHardware(list) {
-  const temps = list.filter((x) => x.type === "temp");
+  // Drives also report their fixed limits ("Warning/Critical Temperature") as sensors: not readings.
+  const temps = list.filter((x) => x.type === "temp" && !/warning|critical|limit|threshold/i.test(x.name));
   let fans = list.filter((x) => x.type === "fan" && x.value >= 0);
   // A Super I/O chip reports every header on the board; show only the ones a fan is plugged into.
   for (const x of fans) if (x.value > 0 && !state.seenFans.has(x.id)) { state.seenFans.add(x.id); persist(); }

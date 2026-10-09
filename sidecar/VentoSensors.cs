@@ -75,6 +75,7 @@ class Program {
                             if (v < s.Control.MinSoftwareValue) v = s.Control.MinSoftwareValue;
                             if (v > s.Control.MaxSoftwareValue) v = s.Control.MaxSoftwareValue;
                             s.Control.SetSoftware(v);
+                            Console.Error.WriteLine("set " + p[1] + " -> " + v + " (min " + s.Control.MinSoftwareValue + ", mode " + s.Control.ControlMode + ")");
                         }
                     }
                 }
